@@ -1,0 +1,30 @@
+{
+  "name": "understanding-ot",
+  "version": "1.0.0",
+  "description": "An interactive comparison of partial, unbalanced and supervised optimal transport",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "python3 -m http.server 8123",
+    "serve": "python3 -m http.server 8123",
+    "test": "node --test \"test/*.test.js\"",
+    "verify": "cd reference && python3 validate.py && cd .. && npm test",
+    "fixtures": "cd reference && python3 validate.py",
+    "screenshot": "python3 scripts/screenshot.py"
+  },
+  "keywords": [
+    "optimal-transport",
+    "sinkhorn",
+    "partial-optimal-transport",
+    "unbalanced-optimal-transport",
+    "supervised-optimal-transport",
+    "explorable-explanation",
+    "visualization"
+  ],
+  "dependencies": {},
+  "devDependencies": {}
+}

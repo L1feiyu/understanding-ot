@@ -1,0 +1,170 @@
+# Understanding Relaxed Optimal Transport
+
+An interactive article comparing **partial**, **unbalanced** and **supervised** optimal transport
+against the balanced baseline — in the spirit of
+[Understanding UMAP](https://pair-code.github.io/understanding-umap/) by Google PAIR.
+
+Every figure solves its transport problem live in the browser. Nothing is precomputed, and there is
+no build step: the site is plain ES modules, so `index.html` works from a static server or straight
+off GitHub Pages.
+
+**→ [Read the article](https://L1feiyu.github.io/understanding-ot/)**
+
+---
+
+## The short version
+
+Classical optimal transport requires `P·1 = a` and `Pᵀ·1 = b`: all supply ships, all demand is met.
+Three relaxations drop that requirement in three ways, and they are usually presented as three
+separate methods with three separate algorithms. They are not. Entropically regularised, all four
+problems are the **same log-domain Sinkhorn loop**, differing in a single projection applied to the
+dual potentials:
+
+| Problem | Objective | Dual projection on `f` |
+|---|---|---|
+| Balanced | `min ⟨P,C⟩`, `P ∈ U(a,b)` | `f + corr` |
+| Partial | `min ⟨P,C⟩`, `P ∈ U(≤a,≤b)`, `⟨P,1⟩ = s` | `min(f + corr, γ)`, γ solved for |
+| Unbalanced | `min ⟨P,C⟩ + τ·KL(P·1‖a) + τ·KL(Pᵀ·1‖b)` | `(τ/(τ+ε))·(f + corr)` |
+| Supervised | `min ⟨P,C⟩ + γ(‖a−P·1‖₁ + ‖b−Pᵀ·1‖₁)`, `P ∈ U(≤a,≤b)` | `min(f + corr, γ)` |
+
+where `corr = ε·log(a[i]) − ε·log(Σⱼ exp((f[i] + g[j] − C[i][j])/ε))`.
+
+Two consequences the article develops:
+
+1. **Partial and supervised OT are the same problem.** Because `P·1 ≤ a` forces
+   `‖a − P·1‖₁ = |a| − ⟨P,1⟩`, the supervised objective collapses to `⟨P, C − 2γ⟩ + const` — exactly
+   partial OT's Lagrangian with multiplier `2γ`. One takes a quantity, the other takes a price.
+   (Verified numerically to ~1e-15; see the test suite.)
+2. **The distinctive part of supervised OT is the element-wise prohibition**, `C[i][j] = ∞`, which
+   neither `s` nor `τ` can express — and which requires a relaxed marginal to be enforceable at all.
+
+## Running it
+
+```bash
+git clone https://github.com/L1feiyu/understanding-ot.git
+cd understanding-ot
+npm start          # or: python3 -m http.server 8123
+```
+
+Then open <http://localhost:8123/>. There is nothing to install — no bundler, no dependencies.
+
+## The solver
+
+`src/lib/ot/solvers.js` is a dependency-free ES module. It works for Node and the browser alike.
+
+```js
+import { solve, squaredEuclidean, normalizeCost, applyBlocking, diagnostics }
+  from './src/lib/ot/solvers.js';
+
+const C = normalizeCost(squaredEuclidean(X, Y));   // X, Y are arrays of [x, y]
+
+solve({ C, a, b, method: 'balanced',   eps: 0.01 });
+solve({ C, a, b, method: 'partial',    eps: 0.01, s: 0.6 });      // move 60% of the mass
+solve({ C, a, b, method: 'unbalanced', eps: 0.01, tau: 0.25 });   // KL penalty
+solve({ C, a, b, method: 'supervised', eps: 0.01, gamma: 0.15 }); // l1 penalty
+
+// Supervision: forbid transport between points of different classes.
+const Cb = applyBlocking(C, X.length, Y.length, (i, j) => labelsX[i] !== labelsY[j]);
+const { P } = solve({ C: Cb, a, b, method: 'supervised', eps: 0.01, gamma: 0.15 });
+```
+
+`solve` returns `{ P, f, g, n, m, iterations, converged }`, with `P` a row-major `Float64Array` of
+length `n*m`. Everything runs in the log domain, so small `ε` does not overflow. Forbidden routes
+are a large finite cost rather than a true `Infinity`, which would poison the log-sum-exp.
+
+`diagnostics(P, C, a, b, n, m)` returns transported mass, transport cost, per-point marginals and
+the ℓ¹ marginal violations that the figures display.
+
+### Cost scale matters
+
+`ε`, `τ` and `γ` are all measured in the units of `C`. Call `normalizeCost` first (it divides by the
+largest finite entry) and the ranges in this repository apply directly: mass moves along a route
+exactly when its cost is below `2γ`, so with `C ∈ [0,1]` everything interesting happens below
+`γ = 0.5`.
+
+## Verification
+
+The JavaScript is checked against NumPy references, which in turn reproduce the published
+algorithms:
+
+```bash
+npm run verify          # regenerate fixtures from NumPy, then run the JS suite
+npm test                # JS suite only
+```
+
+- `reference/ot_reference.py` implements each method in NumPy and reproduces POT's
+  `entropic_partial_wasserstein` and `sinkhorn_knopp_unbalanced` to ~1e-15.
+- Supervised OT uses the authors' own `perform_sOT_log` **verbatim**, unmodified.
+- `reference/validate.py` cross-checks the log-domain forms against the classical multiplicative
+  ones, pins the limiting cases, and emits `reference/fixtures.json`.
+- `test/solvers.test.js` runs the JS solvers against those fixtures plus property tests: exact
+  marginals for balanced OT, `P·1 ≤ a` for partial, monotone mass in `τ`, potentials capped at `γ`,
+  exactly zero leakage through forbidden pairs, and the partial ↔ supervised equivalence.
+
+`scripts/screenshot.py` renders the article in headless Chromium, fails on any console error or
+blank canvas, and captures both themes. It needs Playwright (`pip install playwright`).
+
+### A note on POT's partial solver
+
+POT's `entropic_partial_wasserstein` uses alternating projection **without** Dykstra's correction
+terms, and can return a plan that is feasible but not optimal. On the test problem in `reference/`
+it returns a plan costing `0.80449` where the true entropic optimum at the same mass costs
+`0.80283`. The default partial solver here runs proper Dykstra iterations and reaches the optimum;
+pass `algorithm: 'dykstra'` if you need to reproduce POT's behaviour for comparison.
+
+## Layout
+
+```
+index.html                  the article
+src/global.css              colour roles for both themes
+src/main.js                 mounts figures lazily, handles the theme toggle
+src/lib/ot/solvers.js       the solvers — the only file most people will want
+src/lib/datasets.js         seeded toy source/target pairs
+src/lib/plot.js             canvas primitives: transport plot, coupling matrix, line chart
+src/lib/palette.js          colour roles, sequential ramp
+src/lib/ui.js               sliders, segmented controls, readouts, tooltips
+src/figures/*.js            one file per figure
+reference/                  NumPy references + golden fixtures
+test/                       node:test suite
+scripts/screenshot.py       headless render + regression check
+```
+
+## Deploying
+
+`.github/workflows/deploy.yml` publishes the repository to GitHub Pages on every push to `main`.
+Because there is no build step it uploads the tree as-is. Enable it under
+**Settings → Pages → Source → GitHub Actions**, then update the article URL at the top of this file.
+
+## Adding a method
+
+1. Add a projection branch to `project()` in `src/lib/ot/solvers.js` and an entry in `METHOD_META`.
+2. Add a NumPy reference to `reference/ot_reference.py` and a fixture case in `validate.py`.
+3. Run `npm run verify`.
+
+The figures read the method list from `METHOD_META`, so they pick it up automatically.
+
+## References
+
+- Zixuan Cang, Qing Nie, Yanxiang Zhao. *Supervised Optimal Transport.*
+  SIAM J. Appl. Math. 82(5), 1851–1877, 2022.
+  [doi:10.1137/22M1469171](https://epubs.siam.org/doi/10.1137/22M1469171) ·
+  [arXiv:2206.13410](https://arxiv.org/abs/2206.13410)
+- L. Chizat, G. Peyré, B. Schmitzer, F.-X. Vialard. *Scaling algorithms for unbalanced optimal
+  transport problems.* Math. Comp. 2018. [arXiv:1607.05816](https://arxiv.org/abs/1607.05816)
+- J.-D. Benamou, G. Carlier, M. Cuturi, L. Nenna, G. Peyré. *Iterative Bregman projections for
+  regularized transportation problems.* SIAM J. Sci. Comput. 2015.
+  [arXiv:1412.5154](https://arxiv.org/abs/1412.5154)
+- M. Cuturi. *Sinkhorn distances.* NeurIPS 2013. [arXiv:1306.0895](https://arxiv.org/abs/1306.0895)
+- L. Chapel, M. Alaya, G. Gasso. *Partial optimal transport with applications on positive-unlabeled
+  learning.* NeurIPS 2020. [arXiv:2002.08276](https://arxiv.org/abs/2002.08276)
+- G. Peyré, M. Cuturi. *Computational Optimal Transport.* FnT ML 2019.
+  [arXiv:1803.00567](https://arxiv.org/abs/1803.00567)
+- R. Flamary et al. *POT: Python Optimal Transport.* JMLR 2021. [pythonot.github.io](https://pythonot.github.io/)
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+The `perform_sOT_log` reference implementation in `reference/ot_reference.py` is reproduced from the
+Supervised Optimal Transport authors' released code and remains theirs; if you use it, cite the
+paper.

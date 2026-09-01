@@ -1,0 +1,480 @@
+/* ------------------------------------------------------------------ *
+ * Understanding Relaxed Optimal Transport — styles
+ *
+ * Colour roles are declared once here, in both modes. Dark mode is a selected
+ * set of steps for the dark surface, not an inverted copy of the light one.
+ * ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  --surface-0: #ffffff;
+  --surface-1: #fcfcfb;
+  --surface-2: #f5f4f1;
+
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #78766f;
+
+  --grid: #e6e4df;
+  --rule: #e0ded8;
+
+  --source: #2a78d6;
+  --target: #eb6834;
+  --accent: #1baf7a;
+  --flow: #52514e;
+
+  --mark: #fff2b8;
+
+  --measure: 44rem;
+  --wide: 60rem;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #131312;
+    --surface-1: #1a1a19;
+    --surface-2: #242422;
+
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #98968c;
+
+    --grid: #333331;
+    --rule: #2e2e2c;
+
+    --source: #3987e5;
+    --target: #d95926;
+    --accent: #199e70;
+    --flow: #c3c2b7;
+
+    --mark: #4a4318;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #131312;
+  --surface-1: #1a1a19;
+  --surface-2: #242422;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #98968c;
+  --grid: #333331;
+  --rule: #2e2e2c;
+  --source: #3987e5;
+  --target: #d95926;
+  --accent: #199e70;
+  --flow: #c3c2b7;
+  --mark: #4a4318;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- layout ---------- */
+
+.wrap { padding: 0 20px 6rem; }
+
+.article > * {
+  max-width: var(--measure);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.article > figure,
+.article > .wide {
+  max-width: var(--wide);
+}
+
+header.masthead {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 5rem 0 1rem;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 2.9rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6rem;
+  font-weight: 620;
+}
+
+.byline {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  margin: 0.8rem 0 2.4rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+  margin: 3.4rem 0 0.8rem;
+  font-weight: 600;
+}
+
+h3 { font-size: 1.15rem; margin: 2.2rem 0 0.5rem; font-weight: 600; }
+
+h4.sub {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+p { margin: 0 0 1.1rem; }
+
+a { color: var(--source); text-underline-offset: 2px; }
+
+code, pre { font-family: var(--font-mono); font-size: 0.88em; }
+
+code {
+  background: var(--surface-2);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.eq {
+  display: block;
+  overflow-x: auto;
+  /* These blocks are laid out with literal line breaks and column alignment,
+     so they need pre — without it every multi-line equation collapses. */
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface-1);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 1.4rem auto;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.eq .lbl { color: var(--text-muted); }
+
+blockquote.aside {
+  margin: 1.6rem auto;
+  padding: 0.9rem 1.1rem;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-1);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+blockquote.aside p:last-child { margin-bottom: 0; }
+
+/* ---------- figures ---------- */
+
+figure {
+  margin: 2.6rem auto;
+  padding: 0;
+}
+
+figure .fig-body {
+  position: relative;
+  background: var(--surface-1);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 1rem 1rem 0.85rem;
+}
+
+figcaption {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-top: 0.7rem;
+  max-width: var(--measure);
+}
+
+.figure-number { color: var(--text-muted); font-weight: 600; }
+
+canvas { display: block; max-width: 100%; }
+
+/* ---------- controls ---------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+  padding-bottom: 0.85rem;
+  margin-bottom: 0.85rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.control { display: block; font-size: 0.78rem; color: var(--text-secondary); }
+
+.control-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.28rem;
+  letter-spacing: 0.01em;
+}
+
+.control-label output { color: var(--text-primary); font-family: var(--font-mono); font-size: 0.75rem; }
+
+.control-slider input[type="range"] { width: 150px; display: block; accent-color: var(--source); }
+
+.control-check { display: flex; align-items: center; gap: 0.4rem; }
+.control-check input { accent-color: var(--source); }
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: 7px;
+  padding: 2px;
+}
+
+.seg {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.seg:hover { color: var(--text-primary); }
+
+.seg.is-active {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.09);
+}
+
+.param-slot { min-width: 150px; }
+.param-none { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+
+/* ---------- readouts, legend, hints ---------- */
+
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.3rem;
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
+}
+
+.readout-item { display: flex; gap: 0.4rem; align-items: baseline; }
+.readout-label { color: var(--text-muted); }
+.readout-value { color: var(--text-primary); font-family: var(--font-mono); }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.fig-hint, .fig-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0.15rem 0 0.7rem;
+  max-width: 62ch;
+}
+
+.fig-note { margin: 0.7rem 0 0.15rem; }
+
+.tooltip {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  background: var(--surface-0);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  z-index: 5;
+  white-space: nowrap;
+}
+
+/* ---------- figure-specific ---------- */
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+@media (max-width: 620px) {
+  .panel-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.panel { min-width: 0; }
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.panel-head h4 { margin: 0; font-size: 0.92rem; font-weight: 600; }
+
+.panel-projection {
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.panel-canvas { border-radius: 8px; background: var(--surface-1); }
+.panel .control { margin-top: 0.4rem; }
+.panel .control-slider input[type="range"] { width: 100%; }
+
+.coupling-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.coupling-canvas { border-radius: 8px; }
+
+.curve-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.curve-caption {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin: 0.4rem 0 0;
+}
+
+.block-canvas { margin: 0 auto; border-radius: 8px; }
+
+.algo {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  line-height: 1.75;
+  margin: 0 0 1rem;
+  color: var(--text-secondary);
+}
+
+.algo mark {
+  background: var(--mark);
+  color: var(--text-primary);
+  padding: 0.12em 0.3em;
+  border-radius: 3px;
+}
+
+.potentials-canvas { border-radius: 8px; }
+
+/* ---------- table ---------- */
+
+/* Wrapper scrolls instead of the page: a four-column table cannot fit a phone. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.4rem auto;
+}
+
+table.guide {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+table.guide th, table.guide td {
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+table.guide th { color: var(--text-muted); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ---------- footer ---------- */
+
+.refs { font-size: 0.9rem; color: var(--text-secondary); }
+.refs ol { padding-left: 1.2rem; }
+.refs li { margin-bottom: 0.6rem; }
+
+footer.colophon {
+  max-width: var(--measure);
+  margin: 4rem auto 0;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  border: 1px solid var(--rule);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.theme-toggle:hover { color: var(--text-primary); }
+
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  header.masthead { padding-top: 3rem; }
+  .control-slider input[type="range"] { width: 130px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
