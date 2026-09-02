@@ -119,28 +119,51 @@
   <code>ε</code>, with the scale of <code>C</code>, and with the total mass all at once.
 </p>
 
-<h3>Supervised OT: price the mass, and ban some routes</h3>
+<h3>Supervised OT: forbid the routes, and let the mass follow</h3>
 
 <p>
-  Supervised OT, introduced by Cang, Nie and Zhao, does two things at once. First it relaxes
-  the marginals with an ℓ¹ penalty rather than a KL one, over plans that may undershoot:
+  Supervised OT, introduced by Cang, Nie and Zhao, also relaxes the marginals — with an ℓ¹ penalty
+  rather than a KL one, over plans that may undershoot:
 </p>
 
 <div class="eq">minimise   &lt;P, C&gt; + γ·( ‖a − P·1‖₁ + ‖b − Pᵀ·1‖₁ )   over   P·1 ≤ a,  Pᵀ·1 ≤ b</div>
 
 <p>
-  Second — and this is the part the name refers to — it lets you forbid individual routes outright
-  by setting <code>C[i][j] = ∞</code>. If you know that source <em>i</em> and target <em>j</em>
-  cannot correspond, because they carry different labels or sit in different tissue types or belong
-  to different time points, you say so in the cost matrix and the solver respects it exactly.
+  But <code>γ</code> is not where this method lives, and reading it as "the supervised OT knob" gets
+  the whole thing backwards. In practice <code>γ</code> is a <em>constant</em>: normalise the cost
+  matrix to <code>(0,1)</code>, set <code>γ = 2</code>, and never touch it again.
 </p>
 
 <p>
-  <code>γ</code> is a price: it is what you pay, per unit, for mass you decline to move. Unlike
-  <code>s</code> you do not have to know the answer in advance, and unlike <code>τ</code> it has an
-  interpretation in the units of the cost matrix — mass moves precisely when moving it costs less
-  than <code>2γ</code>. We will come back to that factor of two, because it turns out to matter.
+  The reason is a one-line calculation we will do properly further down: a route is worth using
+  exactly when <code>C[i][j] &lt; 2γ</code>. With every cost at most <code>1</code> and
+  <code>γ = 2</code>, that threshold sits at <code>4</code> — above everything in the matrix. The
+  price never bites. Every route that is <em>allowed</em> gets used, and <code>γ</code> is chosen
+  precisely to guarantee that: it is set large enough to get out of the way.
 </p>
+
+<p>
+  What decides the plan, then, is which routes are allowed at all. This is the part the name refers
+  to: supervised OT lets you forbid a route outright by setting <code>C[i][j] = ∞</code>, and the
+  usual way to do that is a <strong>cutoff</strong> — everything costing more than some threshold is
+  out. Mass whose only partners lie beyond the cutoff has nowhere permitted to go, so it stays.
+</p>
+
+<p>
+  So the knob is the cutoff, and it is denominated in the units of the cost matrix: a distance, a
+  dissimilarity, an interaction radius. That is a categorically different thing to specify than
+  <code>s</code> or <code>τ</code>. You are not saying <em>how much</em> mass should move, nor how
+  badly you want the marginals — you are saying <em>how far mass is allowed to travel</em>, and the
+  amount that moves is an output, not an input.
+</p>
+
+<blockquote class="aside">
+  <p>
+    The cutoff need not be a distance threshold. Any rule that says which pairs may correspond works
+    the same way — matching labels, compatible cell types, a time ordering that forbids going
+    backwards. A threshold on <code>C</code> is just the most common form of it.
+  </p>
+</blockquote>
 
 <h2>What the marginals actually do</h2>
 
@@ -193,9 +216,10 @@
   <div id="fig-projections"></div>
   <figcaption>
     <span class="figure-number">Figure 3: </span>
-    The source potentials <code>f</code>, sorted, under each projection. Bars resting against the
-    dashed ceiling are the points that keep their mass. Watch the ceiling descend as you lower
-    <code>γ</code>, and watch the unbalanced potentials shrink rather than clip.
+    The source potentials <code>f</code>, sorted, under each projection. For supervised OT the
+    ceiling sits at <code>γ = 2</code> and never moves; the bars that reach it belong to points
+    stranded by the cutoff, with no permitted partner left. Lower the cutoff and watch that group
+    grow. Unbalanced OT, by contrast, shrinks its potentials rather than clipping them.
   </figcaption>
 </figure>
 
@@ -210,18 +234,20 @@
   <div id="fig-mass"></div>
   <figcaption>
     <span class="figure-number">Figure 4: </span>
-    Transported mass as a function of each method's parameter. Partial OT is a straight line by
-    construction. Unbalanced OT rises smoothly and reaches the full marginals only in the limit.
-    Supervised OT climbs in steps.
+    Transported mass as a function of each method's actual control. Partial OT is a straight line
+    by construction. Unbalanced OT rises smoothly and reaches the full marginals only in the limit.
+    Supervised OT climbs in steps as the cutoff admits whole groups of routes, then saturates once
+    every point has a partner it is permitted to use.
   </figcaption>
 </figure>
 
 <p>
   That staircase in the third panel is worth pausing on. It is not a numerical artefact — it is the
-  method working correctly. Because <code>γ</code> is a price per unit of unmoved mass, raising it
-  changes nothing until it crosses the cost of some group of routes, at which point that whole group
-  becomes worth using at once. With the entropic term the steps are rounded off, and they sharpen as
-  <code>ε</code> falls.
+  method working correctly. Raising the cutoff changes nothing until it crosses the cost of some
+  group of routes, at which point that whole group becomes admissible at once. With the entropic
+  term the steps are rounded off, and they sharpen as <code>ε</code> falls. Notice too that the
+  curve flattens at the top well before the cutoff reaches 1: past the point where every source has
+  <em>some</em> permitted partner, widening the cutoff adds nothing.
 </p>
 
 <h2>Partial and supervised OT are the same problem</h2>
@@ -255,10 +281,17 @@
 </blockquote>
 
 <p>
-  So the practical difference between them is not what they compute but what you have to supply.
-  Partial OT wants a quantity; supervised OT wants a price. Which is easier to name depends entirely
-  on your application, and that is a real distinction — but it is a distinction about interfaces,
-  not about mathematics.
+  It is worth being careful about what this does and does not say. It says the ℓ¹ relaxation in
+  supervised OT is not a new way of deciding how much mass moves — it is partial OT's mass budget,
+  written as a price. And since <code>γ</code> is in practice pinned at the saturating value, nobody
+  uses that reparameterisation at all: at <code>γ = 2</code> the price is switched off by
+  construction.
+</p>
+
+<p>
+  Which is the point. The relaxation is not the content of supervised OT. It is the
+  <em>precondition</em> for the content — the thing that makes it legal to leave mass behind, so
+  that forbidding a route is a coherent instruction rather than an infeasible one.
 </p>
 
 <h2>What supervision actually buys</h2>
@@ -322,9 +355,9 @@
     </tr>
     <tr>
       <td><strong>Supervised OT</strong></td>
-      <td>You have side information about which pairs may correspond, and would rather price unmoved mass than budget it.</td>
-      <td>A price <code>γ</code>, and the forbidden set.</td>
-      <td>Without forbidden routes it is partial OT in different clothing — the supervision is the point.</td>
+      <td>You can state which pairs are allowed to correspond — an interaction radius, a label rule, a time ordering — and would rather specify that than a mass budget.</td>
+      <td>A cutoff on the normalised cost. <code>γ</code> stays at 2.</td>
+      <td>With nothing forbidden it collapses to balanced OT, because <code>γ = 2</code> saturates. The supervision <em>is</em> the method.</td>
     </tr>
   </tbody>
 </table>
@@ -341,12 +374,23 @@
 </p>
 
 <p>
-  The solvers are checked against NumPy references in <code>reference/</code>, which reproduce the
-  relevant routines from the <a href="https://pythonot.github.io/">POT</a> library and use the
-  authors' own <code>perform_sOT_log</code> for supervised OT unmodified. Agreement is to roughly
-  machine precision, and the test suite also pins the limiting cases — unbalanced OT converging to
-  balanced OT as <code>τ</code> grows, supervised OT doing the same as <code>γ</code> grows,
-  supervision leaking exactly zero mass.
+  It is worth being exact about provenance, because "validated against POT" and "uses POT" are
+  different claims. For supervised OT the reference is the authors' own
+  <code>perform_sOT_log</code>, used verbatim and unmodified. For the other three,
+  <code>reference/ot_reference.py</code> is a re-implementation written to reproduce the
+  <a href="https://pythonot.github.io/">POT</a> library's algorithms — it does not import POT, so on
+  its own it is evidence about the algorithm rather than about the library. A second script,
+  <code>reference/pot_reference.py</code>, runs the actual library and compares, and can regenerate
+  the golden fixtures from POT so the JavaScript is tested against genuine library output. The
+  JavaScript itself is a port of these updates into one shared log-sum-exp kernel, not a translation
+  of anyone's source.
+</p>
+
+<p>
+  The suite also pins the behaviour this article relies on: <code>γ</code> being saturated at 2 so
+  that varying it changes nothing, mass rising monotonically with the cutoff, exactly zero mass
+  crossing it, and complementary slackness — a source potential below the ceiling means that point's
+  marginal is met exactly, and a potential resting on the ceiling means it is not.
 </p>
 
 <p>

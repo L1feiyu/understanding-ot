@@ -25,7 +25,7 @@ dual potentials:
 | Balanced | `min ⟨P,C⟩`, `P ∈ U(a,b)` | `f + corr` |
 | Partial | `min ⟨P,C⟩`, `P ∈ U(≤a,≤b)`, `⟨P,1⟩ = s` | `min(f + corr, γ)`, γ solved for |
 | Unbalanced | `min ⟨P,C⟩ + τ·KL(P·1‖a) + τ·KL(Pᵀ·1‖b)` | `(τ/(τ+ε))·(f + corr)` |
-| Supervised | `min ⟨P,C⟩ + γ(‖a−P·1‖₁ + ‖b−Pᵀ·1‖₁)`, `P ∈ U(≤a,≤b)` | `min(f + corr, γ)` |
+| Supervised | `min ⟨P,C⟩ + γ(‖a−P·1‖₁ + ‖b−Pᵀ·1‖₁)`, `P ∈ U(≤a,≤b)`, `C[i][j] = ∞` past a cutoff | `min(f + corr, γ)`, γ fixed at 2 |
 
 where `corr = ε·log(a[i]) − ε·log(Σⱼ exp((f[i] + g[j] − C[i][j])/ε))`.
 
@@ -37,6 +37,12 @@ Two consequences the article develops:
    (Verified numerically to ~1e-15; see the test suite.)
 2. **The distinctive part of supervised OT is the element-wise prohibition**, `C[i][j] = ∞`, which
    neither `s` nor `τ` can express — and which requires a relaxed marginal to be enforceable at all.
+
+**`γ` is not a hyperparameter.** A route is used exactly when `C[i][j] < 2γ`, so with `C` normalised
+to `(0,1)` and `γ = 2` the threshold sits at 4 — above every cost — and the price never binds. That
+is deliberate: `γ` is set large enough to get out of the way, so the only thing deciding the plan is
+which routes are permitted. **The knob is the cutoff on `C`.** Pass it as `cutoff`, in the units of
+the normalised cost.
 
 ## Running it
 
@@ -61,11 +67,15 @@ const C = normalizeCost(squaredEuclidean(X, Y));   // X, Y are arrays of [x, y]
 solve({ C, a, b, method: 'balanced',   eps: 0.01 });
 solve({ C, a, b, method: 'partial',    eps: 0.01, s: 0.6 });      // move 60% of the mass
 solve({ C, a, b, method: 'unbalanced', eps: 0.01, tau: 0.25 });   // KL penalty
-solve({ C, a, b, method: 'supervised', eps: 0.01, gamma: 0.15 }); // l1 penalty
+solve({ C, a, b, method: 'supervised', eps: 0.01, cutoff: 0.3 });  // routes past 0.3 forbidden
 
-// Supervision: forbid transport between points of different classes.
+// `cutoff` is the usual supervision: gamma defaults to SOT_GAMMA (= 2), and every
+// route costing more than the cutoff becomes unusable, so mass with no partner
+// inside it simply stays put.
+
+// Any other rule works the same way — here, forbid cross-class transport:
 const Cb = applyBlocking(C, X.length, Y.length, (i, j) => labelsX[i] !== labelsY[j]);
-const { P } = solve({ C: Cb, a, b, method: 'supervised', eps: 0.01, gamma: 0.15 });
+const { P } = solve({ C: Cb, a, b, method: 'supervised', eps: 0.01 });
 ```
 
 `solve` returns `{ P, f, g, n, m, iterations, converged }`, with `P` a row-major `Float64Array` of
@@ -77,10 +87,11 @@ the ℓ¹ marginal violations that the figures display.
 
 ### Cost scale matters
 
-`ε`, `τ` and `γ` are all measured in the units of `C`. Call `normalizeCost` first (it divides by the
-largest finite entry) and the ranges in this repository apply directly: mass moves along a route
-exactly when its cost is below `2γ`, so with `C ∈ [0,1]` everything interesting happens below
-`γ = 0.5`.
+`ε`, `τ`, `γ` and the cutoff are all measured in the units of `C`, so call `normalizeCost` first (it
+divides by the largest finite entry) — supervised OT in particular assumes it. With `C ∈ (0,1]` a
+route is used exactly when its cost is below `2γ`; `γ = 2` puts that at 4, above everything, which is
+why the cutoff rather than `γ` is what you tune. Apply the cutoff *after* normalising: the sentinel
+cost standing in for `∞` is not rescaled.
 
 ## Verification
 
@@ -92,14 +103,49 @@ npm run verify          # regenerate fixtures from NumPy, then run the JS suite
 npm test                # JS suite only
 ```
 
-- `reference/ot_reference.py` implements each method in NumPy and reproduces POT's
-  `entropic_partial_wasserstein` and `sinkhorn_knopp_unbalanced` to ~1e-15.
+- `reference/ot_reference.py` implements each method in NumPy, written to reproduce POT's
+  algorithms. **It does not import POT** — it is a re-implementation, so it is evidence about the
+  algorithm, not about the library.
+- `reference/pot_reference.py` closes that gap: it runs the **actual POT library** and compares. It
+  also regenerates the fixtures from POT, so the JavaScript is tested against genuine library
+  output rather than against a re-implementation:
+
+  ```bash
+  pip install POT
+  npm run verify:pot        # compare the references against installed POT
+  npm run fixtures:pot      # regenerate fixtures.json from POT, then: npm test
+  ```
+
+  Run this at least once. It is not in CI because it needs a PyPI install, and it was never executed
+  by the original author of this repository — see the provenance note below.
 - Supervised OT uses the authors' own `perform_sOT_log` **verbatim**, unmodified.
 - `reference/validate.py` cross-checks the log-domain forms against the classical multiplicative
   ones, pins the limiting cases, and emits `reference/fixtures.json`.
 - `test/solvers.test.js` runs the JS solvers against those fixtures plus property tests: exact
-  marginals for balanced OT, `P·1 ≤ a` for partial, monotone mass in `τ`, potentials capped at `γ`,
-  exactly zero leakage through forbidden pairs, and the partial ↔ supervised equivalence.
+  marginals for balanced OT, `P·1 ≤ a` for partial, monotone mass in `τ` and in the cutoff, `γ`
+  provably saturated at `SOT_GAMMA` (varying it changes nothing), exactly zero mass crossing the
+  cutoff, complementary slackness on the ceiling, and the partial ↔ supervised equivalence.
+
+### Provenance — what is whose code
+
+Worth being exact about, because "validated against POT" and "uses POT" are different claims:
+
+| Piece | Where it came from |
+|---|---|
+| `perform_sOT_log` in `ot_reference.py` | The sOT authors' released code, **verbatim and unmodified**. |
+| The rest of `ot_reference.py` | Written here to reproduce POT's algorithms from the papers. Not POT's code. |
+| `pot_reference.py` | Calls the **real POT library**. This is the only place POT actually runs. |
+| `src/lib/ot/solvers.js` | Written here. A re-implementation of the same updates, sharing one log-sum-exp kernel across all four methods, tested against the fixtures. |
+
+The JavaScript is therefore a port validated against reference output, not a translation of anyone's
+source. Differences that are deliberate: the sOT reference adds `1e-20` inside the raw sum where the
+JS adds a tiny constant inside a max-shifted log-sum-exp, and the JS exits early on convergence
+instead of running a fixed `niter`.
+
+`pot_reference.py` was written but **never executed** by its author — the authoring environment had
+no PyPI access, so POT could not be installed. Its adapter logic (signature handling across POT
+versions, variant probing, fixture writing) was exercised against a stand-in module, but the
+comparison against real POT has not been run. Run `npm run verify:pot` before relying on it.
 
 `scripts/screenshot.py` renders the article in headless Chromium, fails on any console error or
 blank canvas, and captures both themes. It needs Playwright (`pip install playwright`).
@@ -124,7 +170,9 @@ src/lib/plot.js             canvas primitives: transport plot, coupling matrix, 
 src/lib/palette.js          colour roles, sequential ramp
 src/lib/ui.js               sliders, segmented controls, readouts, tooltips
 src/figures/*.js            one file per figure
-reference/                  NumPy references + golden fixtures
+reference/ot_reference.py   NumPy re-implementations (no POT import)
+reference/pot_reference.py  runs the real POT library and compares / regenerates fixtures
+reference/validate.py       cross-checks + emits fixtures.json
 test/                       node:test suite
 scripts/screenshot.py       headless render + regression check
 ```

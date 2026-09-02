@@ -13,6 +13,8 @@
     "serve": "python3 -m http.server 8123",
     "test": "node --test test/solvers.test.js",
     "verify": "cd reference && python3 validate.py && cd .. && npm test",
+    "verify:pot": "cd reference && python3 pot_reference.py",
+    "fixtures:pot": "cd reference && python3 pot_reference.py --write-fixtures",
     "fixtures": "cd reference && python3 validate.py",
     "screenshot": "python3 scripts/screenshot.py"
   },

@@ -21,7 +21,7 @@ import {
 } from '../lib/ui.js';
 
 export function blockingFigure(root) {
-  const state = { method: 'supervised', blocked: true, eps: 0.006, gamma: 0.15, tau: 0.25, s: 0.7 };
+  const state = { method: 'supervised', blocked: true, eps: 0.006, tau: 0.25, s: 0.7 };
   const p = palette();
 
   const canvas = el('canvas', { class: 'block-canvas' });
@@ -92,15 +92,19 @@ export function blockingFigure(root) {
 
   const PARAMS = {
     partial: { key: 's', label: 'mass fraction s', min: 0.05, max: 1, step: 0.01, log: false },
-    unbalanced: { key: 'tau', label: 'KL penalty τ', min: 0.001, max: 5, log: true },
-    supervised: { key: 'gamma', label: 'ℓ¹ penalty γ', min: 0.002, max: 1, log: true }
+    unbalanced: { key: 'tau', label: 'KL penalty τ', min: 0.001, max: 5, log: true }
+    // Supervised OT has no slider here: gamma is pinned at SOT_GAMMA and the
+    // supervision is the checkbox. That is the point of the figure.
   };
 
   function buildParam() {
     paramSlot.textContent = '';
     const cfg = PARAMS[state.method];
     if (!cfg) {
-      paramSlot.appendChild(el('span', { class: 'param-none', text: 'no parameter' }));
+      paramSlot.appendChild(el('span', {
+        class: 'param-none',
+        text: state.method === 'supervised' ? 'γ pinned at 2 — supervision is the knob' : 'no parameter'
+      }));
       return;
     }
     paramSlot.appendChild(slider({
@@ -119,7 +123,7 @@ export function blockingFigure(root) {
     const C = state.blocked ? applyBlocking(baseC, n, m, isBlocked) : baseC;
     const res = solve({
       C, a: data.a, b: data.b, method: state.method,
-      eps: state.eps, s: state.s, tau: state.tau, gamma: state.gamma
+      eps: state.eps, s: state.s, tau: state.tau
     });
 
     const ctx = prepareCanvas(canvas, width, height);

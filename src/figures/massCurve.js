@@ -6,9 +6,9 @@
  * putting them on a shared axis would invent a comparison that does not exist.
  * Each panel is one series, so none of them needs a legend.
  *
- * The shape worth noticing is in the third panel: mass as a function of gamma is
- * a staircase, because gamma is a price and pairs switch from "not worth moving"
- * to "worth moving" in groups.
+ * The shape worth noticing is in the third panel: mass as a function of the
+ * cutoff is a staircase, because raising the cutoff admits whole groups of
+ * routes at once, and it saturates as soon as every point has a partner.
  */
 
 import { solve, squaredEuclidean, normalizeCost, totalMass } from '../lib/ot/solvers.js';
@@ -29,9 +29,9 @@ const PANELS = [
     caption: 'Mass rises smoothly with τ and only reaches the marginals in the limit.'
   },
   {
-    method: 'supervised', key: 'gamma', title: 'Supervised OT', axis: 'ℓ¹ penalty γ',
-    values: logspace(0.004, 1, 44), log: true, ticks: [0.01, 0.1, 1],
-    caption: 'A staircase: γ is a price per unit of unmoved mass, so pairs become worth moving in groups.'
+    method: 'supervised', key: 'cutoff', title: 'Supervised OT', axis: 'cost cutoff',
+    values: linspace(0.03, 1, 44), log: false, ticks: [0.25, 0.5, 0.75, 1],
+    caption: 'A staircase: the cutoff admits whole groups of routes at once, and saturates once every point has a partner.'
   }
 ];
 

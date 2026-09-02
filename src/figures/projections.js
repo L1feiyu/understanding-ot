@@ -10,7 +10,7 @@
  * partial does the clipping too, with the ceiling chosen for you.
  */
 
-import { solve, squaredEuclidean, normalizeCost, totalMass, METHOD_META } from '../lib/ot/solvers.js';
+import { solve, squaredEuclidean, normalizeCost, totalMass, METHOD_META, SOT_GAMMA } from '../lib/ot/solvers.js';
 import { makeDataset } from '../lib/datasets.js';
 import { prepareCanvas } from '../lib/plot.js';
 import { palette, withAlpha } from '../lib/palette.js';
@@ -22,18 +22,18 @@ const LINES = {
   balanced:   'f[i] = f[i] + corr',
   partial:    'f[i] = min(f[i] + corr, γ)      // γ solved for, to hit mass s',
   unbalanced: 'f[i] = (τ/(τ+ε)) * (f[i] + corr)',
-  supervised: 'f[i] = min(f[i] + corr, γ)'
+  supervised: 'f[i] = min(f[i] + corr, γ)      // γ = 2, fixed; C[i][j] = ∞ past the cutoff'
 };
 
 const EXPLAIN = {
   balanced: 'No projection at all. The update sets the row sum to exactly a[i], every time, which is what makes the marginal a hard constraint.',
   partial: 'The same ceiling as supervised OT, but you specify the mass and the solver searches for the γ that delivers it. Same algorithm, opposite direction.',
   unbalanced: 'A shrink toward zero. Potentials never reach the value that would enforce the marginal, and how far short they fall is set by τ.',
-  supervised: 'A hard ceiling at γ. Any point whose potential wants to exceed γ simply keeps its mass instead — that is the ℓ¹ penalty, seen from the dual side.'
+  supervised: 'A hard ceiling at γ, which is pinned at 2 and never moved. Since every normalised cost is below 2γ, the price never bites on a permitted route — the only potentials that reach the ceiling belong to points stranded by the cutoff, with no permitted partner left.'
 };
 
 export function projectionsFigure(root) {
-  const state = { method: 'supervised', eps: 0.008, gamma: 0.15, tau: 0.25, s: 0.6 };
+  const state = { method: 'supervised', eps: 0.008, cutoff: 0.22, tau: 0.25, s: 0.6 };
   const p = palette();
 
   const code = el('pre', { class: 'algo' });
@@ -69,7 +69,7 @@ export function projectionsFigure(root) {
   const PARAMS = {
     partial: { key: 's', label: 'mass fraction s', min: 0.05, max: 1, step: 0.01 },
     unbalanced: { key: 'tau', label: 'KL penalty τ', min: 0.001, max: 5, log: true },
-    supervised: { key: 'gamma', label: 'ℓ¹ penalty γ', min: 0.002, max: 1, log: true }
+    supervised: { key: 'cutoff', label: 'cost cutoff', min: 0.05, max: 1, step: 0.01 }
   };
 
   function buildParam() {
@@ -96,7 +96,8 @@ export function projectionsFigure(root) {
 
     const res = solve({
       C, a: data.a, b: data.b, method: state.method,
-      eps: state.eps, s: state.s, tau: state.tau, gamma: state.gamma
+      eps: state.eps, s: state.s, tau: state.tau,
+      cutoff: state.method === 'supervised' ? state.cutoff : undefined
     });
 
     const width = figureWidth(body, 720);
@@ -105,12 +106,21 @@ export function projectionsFigure(root) {
     const f = Array.from(res.f).sort((x, y) => x - y);
 
     const ceiling =
-      state.method === 'supervised' ? state.gamma :
+      state.method === 'supervised' ? SOT_GAMMA :
       state.method === 'partial' ? res.gamma :
       null;
 
+    // Stranded points sit exactly at gamma = 2 while everything else lives near
+    // 0.1–0.4, so scaling to the ceiling would flatten every bar that matters.
+    // Scale to the uncapped potentials instead and let capped bars run off the
+    // top, marked as clipped.
+    const atCap = (v) => ceiling != null && v >= ceiling - 1e-9;
+    const free = f.filter((v) => !atCap(v));
     const lo = Math.min(0, ...f);
-    const hi = Math.max(...f, ceiling ?? -Infinity, 0.001);
+    const hi = free.length
+      ? Math.max(...free) * 1.3
+      : Math.max(...f, ceiling ?? -Infinity, 0.001);
+    const clipping = ceiling != null && ceiling > hi;
     const padT = 14, padB = 22, padL = 40, padR = 12;
     const sy = (v) => height - padB - ((v - lo) / (hi - lo || 1)) * (height - padT - padB);
     const bw = (width - padL - padR) / f.length;
@@ -127,16 +137,26 @@ export function projectionsFigure(root) {
     ctx.fillText('0', padL - 6, zeroY);
 
     for (let i = 0; i < f.length; i++) {
-      const atCap = ceiling != null && f[i] >= ceiling - 1e-9;
-      ctx.fillStyle = atCap ? withAlpha(p.accent, 0.88) : withAlpha(p.source, 0.85);
-      const y = sy(f[i]);
+      const capped = atCap(f[i]);
+      ctx.fillStyle = capped ? withAlpha(p.accent, 0.88) : withAlpha(p.source, 0.85);
+      const y = capped && clipping ? padT : sy(f[i]);
       const h = Math.abs(zeroY - y);
       // 2px surface gap between adjacent bars
-      ctx.fillRect(padL + i * bw + 1, Math.min(y, zeroY), Math.max(bw - 2, 1), Math.max(h, 1));
+      const x = padL + i * bw + 1, w = Math.max(bw - 2, 1);
+      ctx.fillRect(x, Math.min(y, zeroY), w, Math.max(h, 1));
+      // Break marker so a clipped bar never reads as a real value.
+      if (capped && clipping) {
+        ctx.strokeStyle = p.surface;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - 0.5, padT + 7); ctx.lineTo(x + w + 0.5, padT + 3);
+        ctx.moveTo(x - 0.5, padT + 12); ctx.lineTo(x + w + 0.5, padT + 8);
+        ctx.stroke();
+      }
     }
 
     if (ceiling != null) {
-      const cy = Math.round(sy(ceiling)) + 0.5;
+      const cy = clipping ? padT + 0.5 : Math.round(sy(ceiling)) + 0.5;
       ctx.save();
       ctx.setLineDash([4, 3]);
       ctx.strokeStyle = p.accent;
@@ -145,10 +165,13 @@ export function projectionsFigure(root) {
       ctx.restore();
       ctx.fillStyle = p.accent;
       ctx.textAlign = 'left';
-      ctx.fillText(`ceiling γ = ${fmt(ceiling, 3)}`, padL + 4, cy - 9);
+      ctx.fillText(
+        clipping ? `ceiling γ = ${fmt(ceiling, 2)} (bars clipped)` : `ceiling γ = ${fmt(ceiling, 3)}`,
+        padL + 4, cy + 9
+      );
     }
 
-    const capped = ceiling != null ? f.filter((v) => v >= ceiling - 1e-9).length : 0;
+    const capped = f.filter(atCap).length;
     explain.textContent =
       `${EXPLAIN[state.method]} ` +
       (ceiling != null

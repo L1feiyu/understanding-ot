@@ -17,7 +17,7 @@ import {
 } from '../lib/ui.js';
 
 export function couplingFigure(root) {
-  const state = { method: 'unbalanced', eps: 0.006, s: 0.6, tau: 0.3, gamma: 0.2 };
+  const state = { method: 'unbalanced', eps: 0.006, s: 0.6, tau: 0.3, cutoff: 0.25 };
   const p = palette();
 
   const matrix = el('canvas', { class: 'coupling-canvas' });
@@ -86,7 +86,8 @@ export function couplingFigure(root) {
 
     const res = solve({
       C, a: data.a, b: data.b, method: state.method,
-      eps: state.eps, s: state.s, tau: state.tau, gamma: state.gamma
+      eps: state.eps, s: state.s, tau: state.tau,
+      cutoff: state.method === 'supervised' ? state.cutoff : undefined
     });
 
     const mctx = prepareCanvas(matrix, size, size);

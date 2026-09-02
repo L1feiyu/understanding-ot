@@ -23,7 +23,7 @@ export function comparisonFigure(root) {
     eps: 0.006,
     s: 0.6,
     tau: 0.25,
-    gamma: 0.15,
+    cutoff: 0.21,
     focus: null
   };
 
@@ -148,7 +148,8 @@ function makePanel(method, state, requestRender, tip) {
     const scale = fitScale(width, height, [data.X, data.Y], 20);
     const res = solve({
       C, a: data.a, b: data.b, method,
-      eps: state.eps, s: state.s, tau: state.tau, gamma: state.gamma
+      eps: state.eps, s: state.s, tau: state.tau,
+      cutoff: method === 'supervised' ? state.cutoff : undefined
     });
     const info = drawTransport(ctx, {
       X: data.X, Y: data.Y, a: data.a, b: data.b, P: res.P,

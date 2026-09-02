@@ -27,6 +27,20 @@ const TINY = 1e-300;
 
 export const METHODS = ['balanced', 'partial', 'unbalanced', 'supervised'];
 
+/**
+ * The penalty supervised OT is used with in practice.
+ *
+ * A route is worth using exactly when C[i][j] < 2*gamma. With the cost matrix
+ * normalised to (0,1), gamma = 2 puts that threshold at 4 — above every cost in
+ * the matrix — so the price never binds and every permitted route is used. That
+ * is deliberate: in sOT the penalty is not the hyperparameter. It is a constant
+ * chosen large enough to get out of the way, so that the only thing deciding
+ * where mass goes is which routes are permitted at all.
+ *
+ * The knob is the cutoff on C.
+ */
+export const SOT_GAMMA = 2;
+
 export const METHOD_META = {
   balanced: {
     label: 'Balanced OT',
@@ -53,11 +67,11 @@ export const METHOD_META = {
   supervised: {
     label: 'Supervised OT',
     short: 'Supervised',
-    // Mass moves along a route when its cost is below 2γ, so with C in [0,1]
-    // everything interesting happens below γ = 0.5.
-    param: { key: 'gamma', label: 'penalty γ', min: 0.002, max: 1, step: 0.002, def: 0.15, log: true },
+    // gamma is pinned at SOT_GAMMA; the cutoff on the normalised cost is what
+    // you actually turn. Everything above the cutoff is a forbidden route.
+    param: { key: 'cutoff', label: 'cost cutoff', min: 0.02, max: 1, step: 0.01, def: 0.21 },
     projection: 'min(f + corr, γ)',
-    blurb: 'An ℓ¹ penalty per unit of unmoved mass, plus hard bans on chosen pairs.'
+    blurb: 'Routes costing more than the cutoff are forbidden outright; mass with no permitted partner simply stays.'
   }
 };
 
@@ -104,6 +118,22 @@ export function normalizeCost(C) {
 }
 
 /**
+ * Forbid every route costing more than `cutoff`.
+ *
+ * This is the way supervised OT is normally driven: normalise C to (0,1), pin
+ * the penalty at SOT_GAMMA, and move the cutoff. Mass whose only partners lie
+ * beyond the cutoff has nowhere permitted to go, so it stays — which is the
+ * whole mechanism, expressed in the units of the cost matrix.
+ *
+ * Apply it to an already-normalised matrix; the sentinel cost is not rescaled.
+ */
+export function applyCutoff(C, cutoff, big = 1e6) {
+  const out = Float64Array.from(C);
+  for (let i = 0; i < out.length; i++) if (out[i] > cutoff) out[i] = big;
+  return out;
+}
+
+/**
  * Apply supervision to a cost matrix: `blocked(i, j)` returning true forbids
  * transport from source i to target j. Implemented as a very large finite cost
  * (a true Infinity would poison the log-sum-exp), exactly as in the sOT paper.
@@ -131,13 +161,20 @@ export function applyBlocking(C, n, m, blocked, big = 1e6) {
  * @param {string} o.method    one of METHODS
  * @param {number} [o.s]       partial OT: total mass to transport
  * @param {number} [o.tau]     unbalanced OT: KL penalty
- * @param {number} [o.gamma]   supervised OT: l1 penalty / potential cap
+ * @param {number} [o.gamma]   supervised OT: l1 penalty / potential cap (default SOT_GAMMA)
+ * @param {number} [o.cutoff]  forbid every route whose cost exceeds this
  * @param {number} [o.nIter]   iterations
  * @param {number} [o.tol]     stop when the marginals stop moving
  * @returns {{P:Float64Array, f:Float64Array, g:Float64Array, n:number, m:number,
  *            iterations:number, converged:boolean}}
  */
 export function solve(o) {
+  // `cutoff` is sugar for supervision by cost threshold: it rewrites the cost
+  // matrix before solving, so callers can pass a plain C and a cutoff value.
+  if (o.cutoff != null && o.cutoff < Infinity) {
+    o = { ...o, C: applyCutoff(o.C, o.cutoff), cutoff: null };
+  }
+  if (o.method === 'supervised' && o.gamma == null) o = { ...o, gamma: SOT_GAMMA };
   if (o.method === 'partial' && o.algorithm !== 'dykstra') return solvePartial(o);
   return sinkhornLoop(o);
 }

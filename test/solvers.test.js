@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  solve, squaredEuclidean, applyBlocking, diagnostics,
-  rowSums, colSums, totalMass, uniform
+  solve, squaredEuclidean, applyBlocking, applyCutoff, normalizeCost, diagnostics,
+  rowSums, colSums, totalMass, uniform, SOT_GAMMA, METHOD_META
 } from '../src/lib/ot/solvers.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -159,4 +159,95 @@ test('interactive settings solve fast enough for a slider', () => {
     const dt = performance.now() - t0;
     assert.ok(dt < 1000, `${method} took ${dt.toFixed(0)}ms`);
   }
+});
+
+
+/* ------------------------------------------------------------------ *
+ * Supervised OT as it is actually used: cost normalised to (0,1), the
+ * penalty pinned at SOT_GAMMA, and the cutoff on C as the only knob.
+ * ------------------------------------------------------------------ */
+
+const Cn = normalizeCost(C);
+
+test('normalised cost lands in (0, 1]', () => {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of Cn) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  assert.ok(lo > 0 && hi <= 1 + 1e-12, `range [${lo}, ${hi}]`);
+  assert.ok(Math.abs(hi - 1) < 1e-12, 'max should be exactly 1');
+});
+
+test('gamma is saturated at SOT_GAMMA, so it is a constant and not a knob', () => {
+  // A route is used when C < 2*gamma. With C <= 1, anything past gamma = 0.5
+  // admits every route, so gamma = 2 sits far inside the saturated regime.
+  assert.ok(SOT_GAMMA > 0.5, 'SOT_GAMMA must exceed max(C)/2 for C in (0,1)');
+  const masses = [0.5, 1, SOT_GAMMA, 10, 100].map((gamma) =>
+    totalMass(solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, gamma, ...OPTS }).P));
+  for (const mass of masses) {
+    assert.ok(Math.abs(mass - masses[0]) < 1e-9, `mass moved with gamma varies: ${masses}`);
+  }
+  assert.ok(Math.abs(masses[0] - 1) < 1e-6, 'saturated supervised OT should move all the mass');
+});
+
+test('supervised OT defaults gamma to SOT_GAMMA', () => {
+  const auto = solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff: 0.4, ...OPTS });
+  const explicit = solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff: 0.4, gamma: SOT_GAMMA, ...OPTS });
+  for (let k = 0; k < n * m; k++) assert.ok(Math.abs(auto.P[k] - explicit.P[k]) < 1e-15);
+});
+
+/** Quantile of a cost matrix, so the cutoffs under test suit whatever data they run on. */
+function quantile(C, p) {
+  const sorted = Array.from(C).sort((x, y) => x - y);
+  return sorted[Math.floor(p * (sorted.length - 1))];
+}
+
+test('the cutoff is the control: mass rises monotonically with it', () => {
+  const cutoffs = [0.02, 0.1, 0.25, 0.5, 0.75, 0.95, 1].map((p) => quantile(Cn, p));
+  let prev = -1;
+  const seen = [];
+  for (const cutoff of cutoffs) {
+    const mass = totalMass(solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff, ...OPTS }).P);
+    assert.ok(mass >= prev - 1e-9, `mass fell at cutoff=${cutoff}`);
+    prev = mass;
+    seen.push(mass);
+  }
+  assert.ok(seen.at(-1) > 0.99, `the largest cost as cutoff should admit everything, got ${seen.at(-1)}`);
+  assert.ok(seen[0] < seen.at(-1) - 0.2, `the cutoff barely changed anything: ${seen}`);
+});
+
+test('no mass crosses the cutoff', () => {
+  for (const cutoff of [0.15, 0.35, 0.6]) {
+    const { P } = solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff, ...OPTS });
+    let leak = 0;
+    for (let k = 0; k < n * m; k++) if (Cn[k] > cutoff) leak += P[k];
+    assert.ok(leak < 1e-12, `cutoff=${cutoff} leaked ${leak}`);
+  }
+});
+
+test('the cutoff option matches pre-applying applyCutoff', () => {
+  const viaOption = solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff: 0.35, ...OPTS });
+  const viaHelper = solve({ C: applyCutoff(Cn, 0.35), a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, ...OPTS });
+  for (let k = 0; k < n * m; k++) assert.ok(Math.abs(viaOption.P[k] - viaHelper.P[k]) < 1e-15);
+});
+
+test('complementary slackness: the ceiling marks exactly the under-served rows', () => {
+  // A capped potential does not mean the row moved nothing — it means the row
+  // could not be fully served. The two-way statement is:
+  //   f[i] <  gamma  =>  row i is filled exactly (its marginal is met)
+  //   f[i] == gamma  =>  row i is strictly short
+  for (const cutoff of [0.02, 0.05, 0.12, 0.4]) {
+    const { f, P } = solve({ C: Cn, a: fx.a, b: fx.b, method: 'supervised', eps: 0.01, cutoff, ...OPTS });
+    const rows = rowSums(P, n, m);
+    for (let i = 0; i < n; i++) {
+      const filled = rows[i] / fx.a[i];
+      if (f[i] >= SOT_GAMMA - 1e-9) {
+        assert.ok(filled < 1 - 1e-6, `cutoff=${cutoff}: capped row ${i} is full (${filled})`);
+      } else {
+        assert.ok(Math.abs(filled - 1) < 1e-6, `cutoff=${cutoff}: uncapped row ${i} is short (${filled})`);
+      }
+    }
+  }
+});
+
+test('the supervised control exposed to the figures is the cutoff', () => {
+  assert.equal(METHOD_META.supervised.param.key, 'cutoff');
 });
