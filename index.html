@@ -267,9 +267,10 @@
   The constant drops out, so supervised OT without any forbidden routes is exactly
   <code>min &lt;P, C − 2γ&gt;</code> over <code>U(≤a, ≤b)</code> — which is the Lagrangian of partial
   OT with multiplier <code>2γ</code> on the mass constraint. Every <code>γ</code> corresponds to some
-  <code>s</code>, and every attainable <code>s</code> to some <code>γ</code>. Solving one solves the
-  other; the solvers in this repository exploit that directly, running partial OT by finding the
-  <code>γ</code> that lands on the mass you asked for.
+  <code>s</code>, and every <em>attainable</em> <code>s</code> to some <code>γ</code>. Solving one
+  solves the other; the solvers in this repository exploit that directly, running partial OT by
+  finding the <code>γ</code> that lands on the mass you asked for. That word "attainable" is doing
+  real work, and we come back to it below.
 </p>
 
 <blockquote class="aside">
@@ -292,6 +293,45 @@
   Which is the point. The relaxation is not the content of supervised OT. It is the
   <em>precondition</em> for the content — the thing that makes it legal to leave mass behind, so
   that forbidding a route is a coherent instruction rather than an infeasible one.
+</p>
+
+<h3>The same statement, from the other direction</h3>
+
+<p>
+  Cang, Nie and Zhao put the relationship directly: supervised OT <em>is</em> partial OT with one
+  extra optimisation wrapped around it — a maximisation over the transported mass itself.
+</p>
+
+<div class="eq">maximise over  θ ∈ [ 0,  min(aᵀ·1, bᵀ·1) ] :
+
+    minimise   &lt;P, C&gt;    over  P ∈ U(≤a, ≤b)    subject to  &lt;P, 1&gt; = θ</div>
+
+<p>
+  Read it from the inside out. The inner problem is exactly partial OT at a prescribed mass
+  <code>θ</code>. The outer one hands <code>θ</code> to the solver instead of to you. Two
+  consequences follow, and together they bracket the method rather neatly.
+</p>
+
+<p>
+  <strong>With no forbidden routes and equal total mass, supervised OT degenerates to balanced
+  OT.</strong> Nothing stops <code>θ</code> from climbing to the full mass, so the outer maximisation
+  takes it there. That is the same saturation we met from the <code>γ</code> side, arriving by a
+  different road: with nothing forbidden, there is no work left for the method to do that balanced OT
+  was not already doing.
+</p>
+
+<p>
+  <strong>With forbidden routes, partial OT can stop being well posed — and supervised OT does
+  not.</strong> Prescribe some <code>θ</code> and the feasible set may simply be empty: there may be
+  no way to move that much mass using only permitted routes. Supervised OT never runs into this,
+  because <code>θ = 0</code> is always feasible. At worst it moves nothing, and it says so.
+</p>
+
+<p>
+  This is the sharpest version of the argument this section has been circling. It is not merely that
+  a relaxed marginal makes bans <em>enforceable</em>; it is that letting the solver choose
+  <code>θ</code> is what keeps the question answerable at all. Fix the mass first and you can pose a
+  problem with no solution. Let the mass follow from what is permitted and you cannot.
 </p>
 
 <h2>What supervision actually buys</h2>

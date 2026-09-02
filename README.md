@@ -31,10 +31,13 @@ where `corr = ε·log(a[i]) − ε·log(Σⱼ exp((f[i] + g[j] − C[i][j])/ε))
 
 Two consequences the article develops:
 
-1. **Partial and supervised OT are the same problem.** Because `P·1 ≤ a` forces
-   `‖a − P·1‖₁ = |a| − ⟨P,1⟩`, the supervised objective collapses to `⟨P, C − 2γ⟩ + const` — exactly
-   partial OT's Lagrangian with multiplier `2γ`. One takes a quantity, the other takes a price.
-   (Verified numerically to ~1e-15; see the test suite.)
+1. **Partial and supervised OT are the same problem** — sOT is partial OT with an extra
+   maximisation over the transported mass `θ`. Because `P·1 ≤ a` forces `‖a − P·1‖₁ = |a| − ⟨P,1⟩`,
+   the supervised objective collapses to `⟨P, C − 2γ⟩ + const`, exactly partial OT's Lagrangian with
+   multiplier `2γ`. One takes a quantity, the other takes a price. (Verified numerically to ~1e-15.)
+   The equivalence needs the mass to be *attainable*: with `∞` entries in `C`, partial OT at a
+   prescribed `θ` can have an empty feasible set, while sOT stays well posed because `θ = 0` is
+   always available.
 2. **The distinctive part of supervised OT is the element-wise prohibition**, `C[i][j] = ∞`, which
    neither `s` nor `τ` can express — and which requires a relaxed marginal to be enforceable at all.
 
