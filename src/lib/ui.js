@@ -172,3 +172,10 @@ export function fmt(v, digits = 3) {
 export function pct(v) {
   return `${(v * 100).toFixed(1)}%`;
 }
+
+/** Solver status for a readout: honest about the iteration cap, calm about a tiny residual. */
+export function solverStatus(res) {
+  if (res.converged) return `converged · ${res.iterations} it`;
+  const r = Number.isFinite(res.residual) ? res.residual.toExponential(0) : '?';
+  return `${res.iterations} it · residual ${r}`;
+}

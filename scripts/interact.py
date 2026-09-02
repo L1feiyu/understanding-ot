@@ -15,10 +15,16 @@ def run(pw, width, height, label):
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
 
     page.goto(URL, wait_until="networkidle")
-    for _ in range(20):
+    # Scroll to the very bottom so every lazily-mounted figure builds.
+    last_h = -1
+    while True:
         page.mouse.wheel(0, 900)
         page.wait_for_timeout(120)
-    page.wait_for_timeout(2000)
+        y, h = page.evaluate("[window.scrollY + window.innerHeight, document.documentElement.scrollHeight]")
+        if y >= h - 2 and h == last_h:
+            break
+        last_h = h
+    page.wait_for_timeout(6000)
 
     segs = page.query_selector_all("button.seg")
     checks = page.query_selector_all(".control-check input")

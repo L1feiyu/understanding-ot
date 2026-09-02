@@ -1,40 +1,41 @@
 /**
- * Figure: one algorithm, four projections.
+ * Figure: one geometry, four projections.
  *
- * The four methods are not four algorithms. They are one Sinkhorn loop with one
- * line changed, and this figure shows both halves of that claim: the line, and
- * what it does to the dual potentials it acts on.
- *
- * The strip plot is the payoff. Balanced leaves the potentials alone; supervised
- * clips them against a ceiling at gamma; unbalanced shrinks them toward zero;
- * partial does the clipping too, with the ceiling chosen for you.
+ * Every entropic problem here is a KL projection of the Gibbs kernel
+ * K = exp(-C/eps) onto a constraint set, or its proximal cousin when a
+ * constraint is replaced by a penalty. A KL projection onto a marginal
+ * constraint is a row (or column) scaling, and the four methods differ only in
+ * WHICH scaling they apply. The figure shows the update, and then the primal
+ * evidence of it: each source's achieved row sum against the one it asked for.
  */
 
-import { solve, squaredEuclidean, normalizeCost, totalMass, METHOD_META, SOT_GAMMA } from '../lib/ot/solvers.js';
+import { squaredEuclidean, normalizeCost, totalMass, METHOD_META, SOT_GAMMA } from '../lib/ot/solvers.js';
+import { sharedSolver } from '../lib/ot/client.js';
 import { makeDataset } from '../lib/datasets.js';
 import { prepareCanvas } from '../lib/plot.js';
 import { palette, withAlpha } from '../lib/palette.js';
 import {
-  el, controlRow, slider, segmented, scheduler, onResize, figureWidth, fmt, pct
+  el, controlRow, slider, segmented, legend, scheduler, onResize, figureWidth, pct
 } from '../lib/ui.js';
 
 const LINES = {
-  balanced:   'f[i] = f[i] + corr',
-  partial:    'f[i] = min(f[i] + corr, γ)      // γ solved for, to hit mass s',
-  unbalanced: 'f[i] = (τ/(τ+ε)) * (f[i] + corr)',
-  supervised: 'f[i] = min(f[i] + corr, γ)      // γ = 2, fixed; C[i][j] = ∞ past the cutoff'
+  balanced:   'u ← a / (K v)                        <span class="lbl">// KL projection onto { P·1 = a }</span>',
+  partial:    'u ← u · min(1, a / (P·1))  + Dykstra   <span class="lbl">// KL projection onto { P·1 ≤ a }</span>',
+  unbalanced: 'u ← ( a / (K v) )^(τ/(τ+ε))            <span class="lbl">// KL-prox of  τ·KL(P·1 ‖ a)</span>',
+  supervised: 'u ← min( a / (K v),  e^(γ/ε) )          <span class="lbl">// KL-prox of  γ·‖a − P·1‖₁,  P·1 ≤ a</span>'
 };
 
 const EXPLAIN = {
-  balanced: 'No projection at all. The update sets the row sum to exactly a[i], every time, which is what makes the marginal a hard constraint.',
-  partial: 'The same ceiling as supervised OT, but you specify the mass and the solver searches for the γ that delivers it. Same algorithm, opposite direction.',
-  unbalanced: 'A shrink toward zero. Potentials never reach the value that would enforce the marginal, and how far short they fall is set by τ.',
-  supervised: 'A hard ceiling at γ, which is pinned at 2 and never moved. Since every normalised cost is below 2γ, the price never bites on a permitted route — the only potentials that reach the ceiling belong to points stranded by the cutoff, with no permitted partner left.'
+  balanced: 'The full projection: every row is rescaled to exactly its target. Both constraint sets are affine, so alternating between them converges to the projection onto their intersection with no bookkeeping at all. Every bar reaches its mark.',
+  partial: 'Projection onto an inequality: only rows that overshoot are scaled, and only downward. Then the total is rescaled to s. These sets are convex but not affine, so alternating projections alone drift to a feasible point that is not the projection — Dykstra’s corrections are what put it right. Bars sit at or below their marks, and the ones below are the rows that gave mass up.',
+  unbalanced: 'Not a projection but a proximal step: the scaling is raised to the power τ/(τ+ε), a geometric interpolation between doing nothing (τ → 0) and the full projection (τ → ∞). Every bar falls short by a factor tied to its own potential, exp(−f/τ). None reaches its mark, and none is stranded.',
+  supervised: 'The full projection, capped: a row is rescaled to its target unless doing so would need a factor beyond e^(γ/ε). With γ pinned at 2 that cap is astronomically large — it binds only for rows that have no permitted partner able to take their mass. Those rows are the short bars; every other bar reaches its mark exactly.'
 };
 
 export function projectionsFigure(root) {
   const state = { method: 'supervised', eps: 0.008, cutoff: 0.22, tau: 0.25, s: 0.6 };
   const p = palette();
+  const solver = sharedSolver();
 
   const code = el('pre', { class: 'algo' });
   const canvas = el('canvas', { class: 'potentials-canvas' });
@@ -47,24 +48,29 @@ export function projectionsFigure(root) {
       label: 'Method',
       options: Object.keys(METHOD_META).map((k) => ({ value: k, label: METHOD_META[k].short })),
       value: state.method,
-      onChange: (v) => { state.method = v; buildParam(); render(); }
+      onChange: (v) => { state.method = v; warm = null; buildParam(); render(); }
     }),
     slider({
-      label: 'entropy ε', min: 0.002, max: 0.05, value: state.eps, log: true,
+      label: 'entropy ε', min: 0.003, max: 0.05, value: state.eps, log: true,
       format: (v) => v.toFixed(3),
       onInput: (v) => { state.eps = v; render(); }
     }),
     paramSlot
   ]));
   body.appendChild(code);
-  body.appendChild(el('h4', { class: 'sub', text: 'The source potentials f, sorted' }));
-  body.appendChild(el('p', { class: 'fig-hint', text: 'Each bar is one f[i]. The dashed rule is the ceiling the projection imposes, where there is one.' }));
+  body.appendChild(el('h4', { class: 'sub', text: 'Each source’s row sum, against the mass it asked for' }));
+  body.appendChild(legend([
+    { colour: withAlpha(p.source, 0.85), label: 'achieved  (P·1)ᵢ' },
+    { colour: p.inkMuted, label: 'requested  aᵢ  (tick)' },
+    { colour: p.accent, label: 'row where the projection was cut short' }
+  ]));
   body.appendChild(canvas);
   body.appendChild(explain);
   root.appendChild(body);
 
   const data = makeDataset('extraCluster', 36);
   const C = normalizeCost(squaredEuclidean(data.X, data.Y));
+  let warm = null;
 
   const PARAMS = {
     partial: { key: 's', label: 'mass fraction s', min: 0.05, max: 1, step: 0.01 },
@@ -87,97 +93,80 @@ export function projectionsFigure(root) {
     }));
   }
 
-  const render = scheduler(() => {
-    code.innerHTML =
-      'for each iteration:\n' +
-      '  corr  = ε·log(a[i]) − ε·log( Σ<sub>j</sub> exp((f[i] + g[j] − C[i][j]) / ε) )\n' +
-      `  <mark>${LINES[state.method]}</mark>\n` +
-      '  … and the same for g';
-
-    const res = solve({
-      C, a: data.a, b: data.b, method: state.method,
-      eps: state.eps, s: state.s, tau: state.tau,
-      cutoff: state.method === 'supervised' ? state.cutoff : undefined
-    });
-
+  function draw(res) {
+    const n = data.X.length, m = data.Y.length;
     const width = figureWidth(body, 720);
-    const height = 190;
+    const height = 200;
     const ctx = prepareCanvas(canvas, width, height);
-    const f = Array.from(res.f).sort((x, y) => x - y);
 
-    const ceiling =
-      state.method === 'supervised' ? SOT_GAMMA :
-      state.method === 'partial' ? res.gammaEquivalent :
-      null;
+    // Row sums and the "cut short" test, per method.
+    const rows = new Float64Array(n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) rows[i] += res.P[i * m + j];
+    const cut = new Array(n).fill(false);
+    for (let i = 0; i < n; i++) {
+      if (state.method === 'supervised') cut[i] = res.f[i] >= SOT_GAMMA - 1e-9;
+      else if (state.method === 'partial') cut[i] = rows[i] < data.a[i] * (1 - 1e-6);
+      else if (state.method === 'unbalanced') cut[i] = false;
+    }
 
-    // Stranded points sit exactly at gamma = 2 while everything else lives near
-    // 0.1–0.4, so scaling to the ceiling would flatten every bar that matters.
-    // Scale to the uncapped potentials instead and let capped bars run off the
-    // top, marked as clipped.
-    const atCap = (v) => ceiling != null && v >= ceiling - 1e-9;
-    const free = f.filter((v) => !atCap(v));
-    const lo = Math.min(0, ...f);
-    const hi = free.length
-      ? Math.max(...free) * 1.3
-      : Math.max(...f, ceiling ?? -Infinity, 0.001);
-    const clipping = ceiling != null && ceiling > hi;
+    // Sort by achieved fraction so the picture reads left to right.
+    const order = Array.from({ length: n }, (_, i) => i)
+      .sort((x, y) => rows[x] / data.a[x] - rows[y] / data.a[y]);
+
     const padT = 14, padB = 22, padL = 40, padR = 12;
-    const sy = (v) => height - padB - ((v - lo) / (hi - lo || 1)) * (height - padT - padB);
-    const bw = (width - padL - padR) / f.length;
+    const maxA = Math.max(...data.a) * 1.12;
+    const sy = (v) => height - padB - (v / maxA) * (height - padT - padB);
+    const bw = (width - padL - padR) / n;
+    const baseY = Math.round(sy(0)) + 0.5;
 
-    // zero rule, solid hairline
     ctx.strokeStyle = p.grid;
     ctx.lineWidth = 1;
-    const zeroY = Math.round(sy(0)) + 0.5;
-    ctx.beginPath(); ctx.moveTo(padL, zeroY); ctx.lineTo(width - padR, zeroY); ctx.stroke();
-    ctx.fillStyle = p.inkMuted;
+    ctx.beginPath(); ctx.moveTo(padL, baseY); ctx.lineTo(width - padR, baseY); ctx.stroke();
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = p.inkMuted;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText('0', padL - 6, zeroY);
+    ctx.fillText('0', padL - 6, baseY);
+    ctx.fillText('aᵢ', padL - 6, sy(data.a[0]));
 
-    for (let i = 0; i < f.length; i++) {
-      const capped = atCap(f[i]);
-      ctx.fillStyle = capped ? withAlpha(p.accent, 0.88) : withAlpha(p.source, 0.85);
-      const y = capped && clipping ? padT : sy(f[i]);
-      const h = Math.abs(zeroY - y);
-      // 2px surface gap between adjacent bars
-      const x = padL + i * bw + 1, w = Math.max(bw - 2, 1);
-      ctx.fillRect(x, Math.min(y, zeroY), w, Math.max(h, 1));
-      // Break marker so a clipped bar never reads as a real value.
-      if (capped && clipping) {
-        ctx.strokeStyle = p.surface;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x - 0.5, padT + 7); ctx.lineTo(x + w + 0.5, padT + 3);
-        ctx.moveTo(x - 0.5, padT + 12); ctx.lineTo(x + w + 0.5, padT + 8);
-        ctx.stroke();
-      }
-    }
-
-    if (ceiling != null) {
-      const cy = clipping ? padT + 0.5 : Math.round(sy(ceiling)) + 0.5;
-      ctx.save();
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = p.accent;
+    for (let k = 0; k < n; k++) {
+      const i = order[k];
+      const x = padL + k * bw + 1, w = Math.max(bw - 2, 1);
+      const y = sy(rows[i]);
+      ctx.fillStyle = cut[i] ? withAlpha(p.accent, 0.88) : withAlpha(p.source, 0.85);
+      ctx.fillRect(x, Math.min(y, baseY), w, Math.max(Math.abs(baseY - y), 1));
+      // requested mass: a tick across the bar's column
+      const ty = Math.round(sy(data.a[i])) + 0.5;
+      ctx.strokeStyle = p.ink;
       ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(padL, cy); ctx.lineTo(width - padR, cy); ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = p.accent;
-      ctx.textAlign = 'left';
-      ctx.fillText(
-        clipping ? `ceiling γ = ${fmt(ceiling, 2)} (bars clipped)` : `ceiling γ = ${fmt(ceiling, 3)}`,
-        padL + 4, cy + 9
-      );
+      ctx.beginPath(); ctx.moveTo(x - 1, ty); ctx.lineTo(x + w + 1, ty); ctx.stroke();
     }
 
-    const capped = f.filter(atCap).length;
+    const nCut = cut.filter(Boolean).length;
+    const nShort = Array.from(rows).filter((r, i) => r < data.a[i] * (1 - 1e-4)).length;
     explain.textContent =
       `${EXPLAIN[state.method]} ` +
-      (ceiling != null
-        ? `${capped} of ${f.length} source potentials sit against the ceiling; those are the points keeping their mass. `
-        : '') +
+      (state.method === 'unbalanced'
+        ? `${nShort} of ${n} rows fall short. `
+        : `${nCut} of ${n} rows were cut short. `) +
       `Mass moved: ${pct(totalMass(res.P))}.`;
+  }
+
+  const render = scheduler(() => {
+    code.innerHTML =
+      'K = exp(−C / ε)                            <span class="lbl">// the Gibbs kernel</span>\n' +
+      'repeat:\n' +
+      '  P = diag(u) · K · diag(v)\n' +
+      `  <mark>${LINES[state.method]}</mark>\n` +
+      '  … and the same scaling for v, from the columns';
+
+    solver.latest('projections', {
+      C, a: data.a, b: data.b, method: state.method,
+      eps: state.eps, s: state.s, tau: state.tau,
+      cutoff: state.method === 'supervised' ? state.cutoff : undefined,
+      warmStart: warm
+    }, (res) => { warm = { f: res.f, g: res.g }; draw(res); },
+    { onBusy: (busy) => canvas.classList.toggle('is-computing', busy) });
   });
 
   buildParam();

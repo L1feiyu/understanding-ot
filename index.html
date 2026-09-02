@@ -19,12 +19,14 @@
 
 <header class="masthead">
   <h1>Understanding Relaxed Optimal Transport</h1>
-  <p class="byline">Partial, unbalanced and supervised OT, side by side</p>
+  <p class="byline"><a href="https://github.com/L1feiyu">L1feiyu</a></p>
   <p class="lede">
     Classical optimal transport insists that every unit of supply is shipped and every unit of
     demand is met. Three well-known relaxations drop that insistence in three different ways.
     They are usually introduced separately, in separate papers, with separate algorithms.
-    This article puts them on the same data, and shows they are the same algorithm with one line changed.
+    This article puts them on the same data, shows they are one geometry with four different
+    projections, and argues that the one that matters most is the one that bounds distance rather
+    than mass.
   </p>
 </header>
 
@@ -135,11 +137,14 @@
 </p>
 
 <p>
-  The reason is a one-line calculation we will do properly further down: a route is worth using
-  exactly when <code>C[i][j] &lt; 2γ</code>. With every cost at most <code>1</code> and
-  <code>γ = 2</code>, that threshold sits at <code>4</code> — above everything in the matrix. The
-  price never bites. Every route that is <em>allowed</em> gets used, and <code>γ</code> is chosen
-  precisely to guarantee that: it is set large enough to get out of the way.
+  The reason is a one-line calculation. Over plans with <code>P·1 ≤ a</code>, the ℓ¹ term is not
+  really a norm — it is just the unmoved mass, <code>‖a − P·1‖₁ = |a| − ⟨P,1⟩</code>, and likewise
+  for <code>b</code>. So the objective collapses to <code>⟨P, C − 2γ⟩</code> plus a constant, and
+  a route is worth using exactly when <code>C[i][j] &lt; 2γ</code>. (The factor of two is because
+  moving a unit relieves the penalty at <em>both</em> ends.) With every cost at most <code>1</code>
+  and <code>γ = 2</code>, that threshold sits at <code>4</code> — above everything in the matrix.
+  The price never bites. Every route that is <em>allowed</em> gets used, and <code>γ</code> is
+  chosen precisely to guarantee that: it is set large enough to get out of the way.
 </p>
 
 <p>
@@ -184,122 +189,124 @@
   </figcaption>
 </figure>
 
-<h2>One algorithm, four projections</h2>
+<h2>One geometry, four projections</h2>
 
 <p>
-  Add an entropy term <code>ε·H(P)</code> to any of these problems and they all become strictly
-  convex, solvable by Sinkhorn-style alternating updates on a pair of dual potentials
-  <code>f</code> and <code>g</code>. Written in the log domain, the shared step is
+  Add an entropy term and every problem in this article becomes the same kind of object. Write
+  <code>K = exp(−C/ε)</code> for the Gibbs kernel. Then entropic OT is a
+  <em>KL projection</em>: find the plan closest to <code>K</code>, in Kullback–Leibler divergence,
+  that satisfies the constraints.
 </p>
 
-<div class="eq">corr  =  ε·log(a[i]) − ε·log( Σ<span class="lbl">j</span> exp( (f[i] + g[j] − C[i][j]) / ε ) )</div>
+<div class="eq">minimise   KL(P ‖ K)   over   P ∈ 𝒞        <span class="lbl">where  KL(P ‖ K) = Σᵢⱼ P·log(P/K) − P + K</span></div>
 
 <p>
-  and every one of the four methods then updates <code>f[i]</code> from <code>corr</code>. The only
-  difference between them is what happens to that update:
+  This is the view of Benamou, Carlier, Cuturi, Nenna and Peyré, and it is worth adopting because KL
+  projections onto marginal constraints are cheap and explicit. Projecting <code>P</code> onto
+  <code>{ P·1 = a }</code> is a row scaling; onto <code>{ Pᵀ·1 = b }</code>, a column scaling:
 </p>
 
-<div class="eq"><span class="lbl">balanced   </span>  f[i] ← f[i] + corr
-<span class="lbl">unbalanced </span>  f[i] ← (τ/(τ+ε)) · ( f[i] + corr )
-<span class="lbl">supervised </span>  f[i] ← min( f[i] + corr, γ )
-<span class="lbl">partial    </span>  f[i] ← min( f[i] + corr, γ )    <span class="lbl">with γ solved for, to hit mass s</span></div>
+<div class="eq">Π<span class="lbl">rows</span>(P)  =  diag( a / (P·1) ) · P              Π<span class="lbl">cols</span>(P)  =  P · diag( b / (Pᵀ·1) )</div>
 
 <p>
-  Balanced OT applies no projection, which is why it enforces the marginal exactly. Unbalanced OT
-  shrinks the potential toward zero, so it never quite gets there. Supervised OT clips it against a
-  ceiling. That single <code>min</code> is the ℓ¹ penalty viewed from the dual side: a source point
-  whose potential wants to climb above <code>γ</code> is a point for which moving the mass is not
-  worth the price, so it keeps it.
+  Sinkhorn's algorithm is nothing more than alternating these two projections. Both sets are
+  <em>affine</em>, and for affine sets alternating Bregman projections converge to the projection
+  onto the intersection with no bookkeeping at all. That is balanced OT.
+</p>
+
+<p>
+  The three relaxations each change what is being projected onto — or replace a constraint with a
+  penalty, in which case the projection becomes a <em>proximal</em> step in the same geometry.
+</p>
+
+<p>
+  <strong>Partial OT</strong> projects onto inequalities. The KL projection onto
+  <code>{ P·1 ≤ a }</code> scales only the rows that overshoot, and only downward:
+  <code>P ← diag(min(1, a/(P·1))) · P</code>. Then the columns, likewise. Then onto
+  <code>{ ⟨P,1⟩ = s }</code>, which is a single global rescale. These three sets are convex but
+  <em>not</em> affine, and that changes the algorithm: plain alternating projection onto non-affine
+  sets converges to <em>some</em> feasible point, but in general not to the projection. Dykstra's
+  algorithm restores it by carrying a correction factor for each set and re-applying it before each
+  projection. POT's <code>entropic_partial_wasserstein</code> does exactly this, and so does the
+  solver behind these figures.
+</p>
+
+<p>
+  <strong>Unbalanced OT</strong> has no constraint to project onto. It pays
+  <code>τ·KL(P·1 ‖ a)</code> instead, and the proximal step of that penalty in KL geometry is a
+  fractional scaling: <code>P ← diag((a/(P·1))^(τ/(τ+ε))) · P</code>. The exponent lies in
+  <code>(0, 1)</code>, so each step goes part of the way toward the full projection and stops.
+  As <code>τ → ∞</code> the exponent goes to 1 and you recover balanced OT; as
+  <code>τ → 0</code> it goes to 0 and nothing moves.
+</p>
+
+<p>
+  <strong>Supervised OT</strong> pays <code>γ·‖a − P·1‖₁</code> over <code>P·1 ≤ a</code>. Its
+  proximal step is the full projection, <em>capped</em>: in scaling factors,
+  <code>u ← min(a/(K·v), e^(γ/ε))</code>. A row is rescaled to its target unless doing so would
+  need a factor beyond <code>e^(γ/ε)</code>. With <code>γ</code> pinned at 2 that cap is
+  astronomically large, and it binds only for a row whose permitted partners cannot take its mass.
+</p>
+
+<p>
+  The dual potentials <code>f = ε·log u</code> of the log-domain implementation are these same
+  scalings seen through a logarithm; the "ceiling at <code>γ</code>" is the cap on <code>u</code>.
 </p>
 
 <figure>
   <div id="fig-projections"></div>
   <figcaption>
     <span class="figure-number">Figure 3: </span>
-    The source potentials <code>f</code>, sorted, under each projection. For supervised OT the
-    ceiling sits at <code>γ = 2</code> and never moves; the bars that reach it belong to points
-    stranded by the cutoff, with no permitted partner left. Lower the cutoff and watch that group
-    grow. Unbalanced OT, by contrast, shrinks its potentials rather than clipping them.
+    The primal picture. For each source point, the mass its row actually carries against the mass it
+    asked for (the tick). Balanced OT reaches every tick. Partial OT reaches some and leaves others
+    short. Unbalanced OT falls short everywhere, each row by its own factor. Supervised OT reaches
+    every tick except for the rows the cap cut off — the ones stranded by the cutoff.
   </figcaption>
 </figure>
 
-<h2>How much mass each knob moves</h2>
+<h2>What each knob controls</h2>
 
 <p>
-  The three parameters are not interchangeable, and the clearest way to see that is to sweep each
-  one and plot the mass it moves.
+  Three methods, three parameters. Sweep each one and watch two things: how much mass moves, and how
+  far the plan reaches — the cost of the longest route it actually uses.
 </p>
 
 <figure>
   <div id="fig-mass"></div>
   <figcaption>
     <span class="figure-number">Figure 4: </span>
-    Transported mass as a function of each method's actual control. Partial OT is a straight line
-    by construction. Unbalanced OT rises smoothly and reaches the full marginals only in the limit.
-    Supervised OT climbs in steps as the cutoff admits whole groups of routes, then saturates once
-    every point has a partner it is permitted to use.
+    Transported mass (top) and longest route used (bottom) as each parameter sweeps. Partial OT's
+    mass is the identity line by construction, and its longest route climbs however it must to hit
+    the quota. Supervised OT is the mirror image: its longest route is the identity line by
+    construction, and its mass climbs however it can. Unbalanced OT moves both at once and pins
+    neither. "Longest route" is the costliest pair carrying at least 1% of its source's mass.
   </figcaption>
 </figure>
 
 <p>
-  That staircase in the third panel is worth pausing on. It is not a numerical artefact — it is the
-  method working correctly. Raising the cutoff changes nothing until it crosses the cost of some
-  group of routes, at which point that whole group becomes admissible at once. With the entropic
-  term the steps are rounded off, and they sharpen as <code>ε</code> falls. Notice too that the
-  curve flattens at the top well before the cutoff reaches 1: past the point where every source has
-  <em>some</em> permitted partner, widening the cutoff adds nothing.
-</p>
-
-<h2>Partial and supervised OT are the same problem</h2>
-
-<p>
-  The staircase is a hint that partial and supervised OT are more closely related than their
-  definitions suggest, and in fact they are two parameterisations of one problem. The derivation is
-  three lines. Because supervised OT optimises over plans with <code>P·1 ≤ a</code>, the ℓ¹ penalty
-  is not really a norm — it is just the unmoved mass:
-</p>
-
-<div class="eq">‖a − P·1‖₁ = |a| − &lt;P, 1&gt;        <span class="lbl">and likewise for b</span>
-
-&lt;P, C&gt; + γ(‖a − P·1‖₁ + ‖b − Pᵀ·1‖₁)  =  &lt;P, C − 2γ&gt; + γ(|a| + |b|)</div>
-
-<p>
-  The constant drops out, so supervised OT without any forbidden routes is exactly
-  <code>min &lt;P, C − 2γ&gt;</code> over <code>U(≤a, ≤b)</code> — which is the Lagrangian of partial
-  OT with multiplier <code>2γ</code> on the mass constraint. Every <code>γ</code> corresponds to some
-  <code>s</code>, and every <em>attainable</em> <code>s</code> to some <code>γ</code>. Solving one
-  solves the other; the solvers in this repository exploit that directly, running partial OT by
-  finding the <code>γ</code> that lands on the mass you asked for. That word "attainable" is doing
-  real work, and we come back to it below.
-</p>
-
-<blockquote class="aside">
-  <p>
-    This also explains the factor of two. Moving a unit of mass from <em>i</em> to <em>j</em> relieves
-    you of the penalty at <em>both</em> ends — <code>γ</code> on the source side and <code>γ</code> on
-    the target side — so a route is worth using exactly when <code>C[i][j] &lt; 2γ</code>.
-  </p>
-</blockquote>
-
-<p>
-  It is worth being careful about what this does and does not say. It says the ℓ¹ relaxation in
-  supervised OT is not a new way of deciding how much mass moves — it is partial OT's mass budget,
-  written as a price. And since <code>γ</code> is in practice pinned at the saturating value, nobody
-  uses that reparameterisation at all: at <code>γ = 2</code> the price is switched off by
-  construction.
+  The bottom-right panel is the one to look at. Supervised OT's longest route <em>is</em> the cutoff:
+  a hard bound on how far any unit of mass may travel, set in the units of the cost matrix. Nothing
+  in the other two rows resembles it. Partial OT will use a route of any length if that is what
+  meeting the mass quota takes; unbalanced OT's reach drifts upward with <code>τ</code> as a side
+  effect of a trade-off it is making about something else.
 </p>
 
 <p>
-  Which is the point. The relaxation is not the content of supervised OT. It is the
-  <em>precondition</em> for the content — the thing that makes it legal to leave mass behind, so
-  that forbidding a route is a coherent instruction rather than an infeasible one.
+  The staircase in the top-right panel is the same fact from the mass side. Raising the cutoff
+  changes nothing until it crosses the cost of some group of routes, at which point that whole group
+  becomes admissible at once; with the entropic term the steps are rounded, and they sharpen as
+  <code>ε</code> falls. The curve flattens well before the cutoff reaches 1, because past the point
+  where every source has <em>some</em> permitted partner, widening the cutoff admits nothing new.
 </p>
 
-<h3>The same statement, from the other direction</h3>
+<h2>Partial OT budgets mass. Supervised OT bounds distance.</h2>
 
 <p>
-  Cang, Nie and Zhao put the relationship directly: supervised OT <em>is</em> partial OT with one
-  extra optimisation wrapped around it — a maximisation over the transported mass itself.
+  It is tempting to read the previous two sections as saying partial and supervised OT are
+  interchangeable — both leave mass behind, both live in <code>U(≤a, ≤b)</code>, and there is a
+  clean identity connecting them when nothing is forbidden. Cang, Nie and Zhao write supervised OT
+  as partial OT with one extra optimisation wrapped around it, a maximisation over the transported
+  mass:
 </p>
 
 <div class="eq">maximise over  θ ∈ [ 0,  min(aᵀ·1, bᵀ·1) ] :
@@ -307,31 +314,45 @@
     minimise   &lt;P, C&gt;    over  P ∈ U(≤a, ≤b)    subject to  &lt;P, 1&gt; = θ</div>
 
 <p>
-  Read it from the inside out. The inner problem is exactly partial OT at a prescribed mass
-  <code>θ</code>. The outer one hands <code>θ</code> to the solver instead of to you. Two
-  consequences follow, and together they bracket the method rather neatly.
+  The inner problem is partial OT at a prescribed mass <code>θ</code>; the outer one hands
+  <code>θ</code> to the solver. And if <code>C</code> has no forbidden entries and the two sides
+  carry equal mass, nothing stops <code>θ</code> from climbing to the total, so the whole thing
+  degenerates to balanced OT — the same saturation we met from the <code>γ</code> side.
 </p>
 
 <p>
-  <strong>With no forbidden routes and equal total mass, supervised OT degenerates to balanced
-  OT.</strong> Nothing stops <code>θ</code> from climbing to the full mass, so the outer maximisation
-  takes it there. That is the same saturation we met from the <code>γ</code> side, arriving by a
-  different road: with nothing forbidden, there is no work left for the method to do that balanced OT
-  was not already doing.
+  But that is the case where supervised OT is not doing anything. The moment the cutoff is in force,
+  the two methods are different objects, and the difference is not one of parameterisation:
+</p>
+
+<blockquote class="aside">
+  <p>
+    <strong>Partial OT controls how much mass moves and says nothing about how far.</strong>
+    Given a quota <code>s</code>, it uses whatever routes it needs, including long ones.
+  </p>
+  <p>
+    <strong>Supervised OT controls how far mass may move and lets the amount follow.</strong>
+    Given a cutoff, no unit of mass travels a route costing more than that, and the transported
+    mass is whatever the permitted routes can carry.
+  </p>
+</blockquote>
+
+<p>
+  This is why the readouts under every figure include <em>longest route</em> alongside mass, cost
+  and slack. Set the supervised cutoff to some value, read off the mass it moves, then hand that
+  same mass to partial OT as its quota. The two plans transport the same amount, and their total
+  costs are usually within a few percent of each other. Their longest routes are not: partial OT's
+  overshoots the cutoff, often by a wide margin. Transport cost is a sum, and a sum hides a handful
+  of long routes among many short ones; the cutoff is a maximum, and a maximum forbids them.
 </p>
 
 <p>
-  <strong>With forbidden routes, partial OT can stop being well posed — and supervised OT does
-  not.</strong> Prescribe some <code>θ</code> and the feasible set may simply be empty: there may be
-  no way to move that much mass using only permitted routes. Supervised OT never runs into this,
-  because <code>θ = 0</code> is always feasible. At worst it moves nothing, and it says so.
-</p>
-
-<p>
-  This is the sharpest version of the argument this section has been circling. It is not merely that
-  a relaxed marginal makes bans <em>enforceable</em>; it is that letting the solver choose
-  <code>θ</code> is what keeps the question answerable at all. Fix the mass first and you can pose a
-  problem with no solution. Let the mass follow from what is permitted and you cannot.
+  There is a second, structural asymmetry. With forbidden routes in <code>C</code>, partial OT at a
+  prescribed <code>θ</code> can have an empty feasible set — there may simply be no way to move that
+  much mass along permitted routes. Supervised OT never has that problem, because
+  <code>θ = 0</code> is always feasible: at worst it moves nothing, and says so. Fix the mass first
+  and you can pose a problem with no solution. Bound the distance and let the mass follow, and you
+  cannot.
 </p>
 
 <h2>What supervision actually buys</h2>
@@ -367,6 +388,28 @@
   marginal are usually contradictory, and something has to give.
 </p>
 
+<h2>The same story in three dimensions</h2>
+
+<p>
+  Everything so far has been flat, which flatters the cutoff: in two dimensions "close" and "far"
+  are easy to see. Here is a helix — a curve where neighbouring turns pass close to each other in
+  space — and a copy of it that has lost its top turn and picked up a stray clump. A small cutoff
+  permits matches along the curve and refuses the short jump between turns; a larger one lets that
+  jump through. Balanced OT has no such choice to make, so it stretches to serve the clump and
+  crowds the missing turn's mass into wherever it will fit.
+</p>
+
+<figure>
+  <div id="fig-three"></div>
+  <figcaption>
+    <span class="figure-number">Figure 6: </span>
+    Four transport problems on a 3D helix. Drag to turn it; it resumes rotating when released. The
+    plan is re-solved when a control changes and only re-projected as the view turns. Watch the
+    stray clump: solid under balanced OT, because something must be sent to it; hollow under the
+    other three as soon as reaching it costs more than the method allows.
+  </figcaption>
+</figure>
+
 <h2>Choosing between them</h2>
 
 <div class="table-scroll">
@@ -385,7 +428,7 @@
       <td><strong>Partial OT</strong></td>
       <td>You know the overlap: a contamination rate, a known outlier fraction, a subsampling ratio.</td>
       <td>A mass fraction <code>s</code>.</td>
-      <td>Guessing <code>s</code> wrongly is worse than not relaxing at all; the plan silently truncates.</td>
+      <td>It bounds how much moves, not how far: to hit the quota it will use routes of any length.</td>
     </tr>
     <tr>
       <td><strong>Unbalanced OT</strong></td>
@@ -395,80 +438,13 @@
     </tr>
     <tr>
       <td><strong>Supervised OT</strong></td>
-      <td>You can state which pairs are allowed to correspond — an interaction radius, a label rule, a time ordering — and would rather specify that than a mass budget.</td>
+      <td>You can say how far mass may travel — an interaction radius, a label rule, a time ordering — and want that bound enforced exactly, with the amount moved following from it.</td>
       <td>A cutoff on the normalised cost. <code>γ</code> stays at 2.</td>
-      <td>With nothing forbidden it collapses to balanced OT, because <code>γ = 2</code> saturates. The supervision <em>is</em> the method.</td>
+      <td>With nothing forbidden it collapses to balanced OT, because <code>γ = 2</code> saturates. The bound on distance <em>is</em> the method.</td>
     </tr>
   </tbody>
 </table>
 </div>
-
-<h2>Notes on the implementation</h2>
-
-<p>
-  Every figure here solves its problem live in your browser; nothing is precomputed. The solver is
-  about two hundred lines of dependency-free JavaScript in
-  <code>src/lib/ot/solvers.js</code>, written entirely in the log domain so that small
-  <code>ε</code> does not overflow. Forbidden routes are encoded as a large finite cost rather than a
-  true <code>Infinity</code>, which would poison the log-sum-exp.
-</p>
-
-<p>
-  It is worth being exact about provenance, because "validated against POT" and "uses POT" are
-  different claims. For supervised OT the reference is the authors' own
-  <code>perform_sOT_log</code>, used verbatim and unmodified. For the other three,
-  <code>reference/ot_reference.py</code> is a re-implementation written to reproduce the
-  <a href="https://pythonot.github.io/">POT</a> library's algorithms — it does not import POT, so on
-  its own it is evidence about the algorithm rather than about the library. A second script,
-  <code>reference/pot_reference.py</code>, runs the actual library and compares, and can regenerate
-  the golden fixtures from POT so the JavaScript is tested against genuine library output. The
-  JavaScript itself is a port of these updates into one shared log-sum-exp kernel, not a translation
-  of anyone's source.
-</p>
-
-<p>
-  The suite also pins the behaviour this article relies on: <code>γ</code> being saturated at 2 so
-  that varying it changes nothing, mass rising monotonically with the cutoff, exactly zero mass
-  crossing it, and complementary slackness — a source potential below the ceiling means that point's
-  marginal is met exactly, and a potential resting on the ceiling means it is not.
-</p>
-
-<p>
-  Two things surfaced while building this that are worth passing on, because both are easy to get
-  wrong in exactly the way we got them wrong.
-</p>
-
-<p>
-  The first is that entropic partial OT is a KL projection onto the intersection of three convex
-  sets, and Dykstra's algorithm reaches it by carrying a correction factor for each one. Drop those
-  corrections and the iteration still converges somewhere <em>feasible</em> — the marginals hold,
-  the mass is right — but to a plan with a strictly larger entropic objective. POT's
-  <code>entropic_partial_wasserstein</code> carries them, and so does the solver here; the two agree
-  to about 1e-14. The uncorrected variant is kept only as the contrast that makes the corrections
-  visible.
-</p>
-
-<blockquote class="aside">
-  <p>
-    An earlier version of this article claimed the reverse — that POT's routine skipped the
-    corrections and returned suboptimal plans. It was wrong, and the way it went wrong is the
-    interesting part. The NumPy "reference" it was measured against was itself missing the
-    corrections, so the comparison ran a correct solver against a broken stand-in and then reported
-    the difference as a property of the library. Running against the real POT is what exposed it:
-    one mass level agreed to 1e-15 while another was off by 15% — the signature of two different
-    algorithms, not of a convergence problem. Validating against your own re-implementation of
-    something proves nothing about the something.
-  </p>
-</blockquote>
-
-<p>
-  The second is a measurement trap. When you compare two plans, rank them by the objective actually
-  being minimised — <code>&lt;P, C&gt; + ε·Σ(P log P − P)</code> — and not by transport cost alone. A
-  regularised solver is entitled to accept a slightly costlier plan in exchange for enough entropy,
-  so <code>&lt;P, C&gt;</code> on its own can order two plans the wrong way round. It does exactly
-  that on one of the cases in <code>reference/validate.py</code>, and taking that ordering at face
-  value would have sent us chasing a bug that was not there.
-</p>
 
 <h2>References</h2>
 
@@ -514,11 +490,9 @@
 
 <footer class="colophon">
   <p>
-    Built in the shape of <a href="https://pair-code.github.io/understanding-umap/">Understanding UMAP</a>
-    by Google PAIR. Source, solvers and tests are
-    <a href="https://github.com/L1feiyu/understanding-ot">on GitHub</a>.
-    The supervised OT formulation and its reference implementation are due to
-    <a href="https://arxiv.org/abs/2206.13410">Cang, Nie and Zhao</a>.
+    Written and built by <a href="https://github.com/L1feiyu">L1feiyu</a>.
+    Source, solvers and tests: <a href="https://github.com/L1feiyu/understanding-ot">github.com/L1feiyu/understanding-ot</a>.
+    Article format after <a href="https://pair-code.github.io/understanding-umap/">Understanding UMAP</a>.
   </p>
 </footer>
 

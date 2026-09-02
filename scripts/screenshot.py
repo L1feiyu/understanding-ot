@@ -10,7 +10,7 @@ from playwright.sync_api import sync_playwright
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8123/index.html"
 OUT = "/tmp/shots"
 
-FIGURES = ["fig-comparison", "fig-coupling", "fig-projections", "fig-mass", "fig-blocking"]
+FIGURES = ["fig-comparison", "fig-coupling", "fig-projections", "fig-mass", "fig-blocking", "fig-three"]
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch(args=["--no-sandbox"])
@@ -27,7 +27,7 @@ with sync_playwright() as pw:
     for y in range(0, 12000, 700):
         page.mouse.wheel(0, 700)
         page.wait_for_timeout(180)
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(9000)
 
     import os
     os.makedirs(OUT, exist_ok=True)

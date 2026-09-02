@@ -17,37 +17,40 @@ off GitHub Pages.
 Classical optimal transport requires `P·1 = a` and `Pᵀ·1 = b`: all supply ships, all demand is met.
 Three relaxations drop that requirement in three ways, and they are usually presented as three
 separate methods with three separate algorithms. They are not. Entropically regularised, all four
-problems are the **same log-domain Sinkhorn loop**, differing in a single projection applied to the
-dual potentials:
+problems are **KL projections of the same Gibbs kernel** (or proximal steps in the same geometry),
+differing only in the scaling each applies to the rows and columns:
 
-| Problem | Objective | Dual projection on `f` |
+| Problem | Constraint / penalty on `P·1` | Row scaling of `P` (KL projection or prox) |
 |---|---|---|
-| Balanced | `min ⟨P,C⟩`, `P ∈ U(a,b)` | `f + corr` |
-| Partial | `min ⟨P,C⟩`, `P ∈ U(≤a,≤b)`, `⟨P,1⟩ = s` | `min(f + corr, γ)`, γ solved for |
-| Unbalanced | `min ⟨P,C⟩ + τ·KL(P·1‖a) + τ·KL(Pᵀ·1‖b)` | `(τ/(τ+ε))·(f + corr)` |
-| Supervised | `min ⟨P,C⟩ + γ(‖a−P·1‖₁ + ‖b−Pᵀ·1‖₁)`, `P ∈ U(≤a,≤b)`, `C[i][j] = ∞` past a cutoff | `min(f + corr, γ)`, γ fixed at 2 |
+| Balanced | `P·1 = a` | `diag(a / (P·1))` — the projection |
+| Partial | `P·1 ≤ a`, plus `⟨P,1⟩ = s` | `diag(min(1, a / (P·1)))` — with Dykstra corrections |
+| Unbalanced | `τ·KL(P·1 ‖ a)` | `diag((a / (P·1))^(τ/(τ+ε)))` — a fractional step |
+| Supervised | `γ·‖a − P·1‖₁`, `P·1 ≤ a`, `C[i][j] = ∞` past a cutoff | `u ← min(a/(K·v), e^(γ/ε))` — the projection, capped |
 
-where `corr = ε·log(a[i]) − ε·log(Σⱼ exp((f[i] + g[j] − C[i][j])/ε))`.
+with `K = exp(−C/ε)` the Gibbs kernel and `P = diag(u)·K·diag(v)`. This is the Bregman-projection
+view of Benamou, Carlier, Cuturi, Nenna and Peyré; the dual potentials of the log-domain
+implementation are `f = ε·log u`.
 
-Two consequences the article develops:
+What the article argues from there:
 
-1. **Partial and supervised OT are the same problem** — sOT is partial OT with an extra
-   maximisation over the transported mass `θ`. Because `P·1 ≤ a` forces `‖a − P·1‖₁ = |a| − ⟨P,1⟩`,
-   the supervised objective collapses to `⟨P, C − 2γ⟩ + const`, exactly partial OT's Lagrangian with
-   multiplier `2γ`. One takes a quantity, the other takes a price. (Verified numerically to ~1e-15.)
-   The equivalence needs the mass to be *attainable*: with `∞` entries in `C`, partial OT at a
-   prescribed `θ` can have an empty feasible set, while sOT stays well posed because `θ = 0` is
-   always available.
-2. **The distinctive part of supervised OT is the element-wise prohibition**, `C[i][j] = ∞`, which
-   neither `s` nor `τ` can express — and which requires a relaxed marginal to be enforceable at all.
-
-**`γ` is not a hyperparameter.** A route is used exactly when `C[i][j] < 2γ`, so with `C` normalised
-to `(0,1)` and `γ = 2` the threshold sits at 4 — above every cost — and the price never binds. That
-is deliberate: `γ` is set large enough to get out of the way, so the only thing deciding the plan is
-which routes are permitted. **The knob is the cutoff on `C`.** Pass it as `cutoff`, in the units of
-the normalised cost.
+1. **Partial OT budgets mass; supervised OT bounds distance.** With nothing forbidden the two
+   coincide — sOT is partial OT with an extra maximisation over the transported mass `θ`, and both
+   collapse to balanced OT. But once the cutoff is in force they are different objects. Partial OT
+   says how *much* moves and will use routes of any length to hit the quota; supervised OT says how
+   *far* mass may travel and lets the amount follow. Every figure reports **longest route** — the
+   costliest pair carrying ≥ 1% of its source's mass — alongside mass and cost, because at equal
+   transported mass the two plans have nearly equal cost and very different longest routes. Cost is
+   a sum and hides a few long routes; the cutoff is a maximum and forbids them.
+2. **`γ` is not a hyperparameter.** A route is used exactly when `C[i][j] < 2γ`, so with `C`
+   normalised to `(0,1)` and `γ = 2` the threshold sits at 4, above every cost, and the price never
+   binds. `γ` is set large enough to get out of the way; **the knob is the cutoff on `C`**.
+3. **The relaxation is a precondition, not the content.** With forbidden routes, partial OT at a
+   prescribed `θ` can have an empty feasible set; sOT stays well posed because `θ = 0` is always
+   available. Letting the mass follow from what is permitted is what keeps the question answerable.
 
 ## Running it
+
+
 
 ```bash
 git clone https://github.com/L1feiyu/understanding-ot.git
@@ -81,12 +84,30 @@ const Cb = applyBlocking(C, X.length, Y.length, (i, j) => labelsX[i] !== labelsY
 const { P } = solve({ C: Cb, a, b, method: 'supervised', eps: 0.01 });
 ```
 
-`solve` returns `{ P, f, g, n, m, iterations, converged }`, with `P` a row-major `Float64Array` of
-length `n*m`. Everything runs in the log domain, so small `ε` does not overflow. Forbidden routes
-are a large finite cost rather than a true `Infinity`, which would poison the log-sum-exp.
+`solve` returns `{ P, f, g, n, m, iterations, converged, residual }`, with `P` a row-major
+`Float64Array` of length `n*m`. Everything runs in the log domain, so small `ε` does not overflow.
+Forbidden routes are a large finite cost rather than a true `Infinity`, which would poison the
+log-sum-exp.
 
-`diagnostics(P, C, a, b, n, m)` returns transported mass, transport cost, per-point marginals and
-the ℓ¹ marginal violations that the figures display.
+Three implementation points that turned out to matter:
+
+- **Convergence is judged on the KKT residual** of each method's fixed point, not on the potentials
+  or the plan settling. With a cap in play Sinkhorn converges *geometrically* to a false plateau,
+  sits there with `|ΔP| ≈ 1e-12`, then a potential crosses the cap and the plan jumps to a different
+  regime. Any "it stopped changing" rule reports the plateau with full confidence; the residual stays
+  around `1e-2` on it. (Watching total mass is worse still: the row step pins it to `|a|` and the
+  column step to `|b|`, so it looks stable from iteration one.)
+- **Over-relaxation** (`omega`, default 1.7) roughly halves the iteration count on the balanced and
+  supervised updates and lands on the same fixed point. Pass `omega: 1` for textbook Sinkhorn.
+- **The figures solve in a Web Worker** (`src/lib/ot/client.js`) with warm starts, so a slow case —
+  two sources fighting over one permitted target can take thousands of iterations — never freezes a
+  slider. When the iteration cap is hit the readout says so and shows the residual, which in those
+  cases is around `1e-6`: accurate far beyond anything a figure can display.
+
+`diagnostics(P, C, a, b, n, m)` returns transported mass, transport cost, the longest route used,
+per-point marginals and the ℓ¹ marginal violations that the figures display. `longestRoute(P, C, a,
+n, m, share = 0.01)` is the costliest pair carrying at least `share` of its source's mass — an
+entropic plan puts a trace of mass everywhere, so a raw max would only report noise.
 
 ### Cost scale matters
 
@@ -196,7 +217,9 @@ src/lib/datasets.js         seeded toy source/target pairs
 src/lib/plot.js             canvas primitives: transport plot, coupling matrix, line chart
 src/lib/palette.js          colour roles, sequential ramp
 src/lib/ui.js               sliders, segmented controls, readouts, tooltips
-src/figures/*.js            one file per figure
+src/lib/ot/worker.js        solver in a Web Worker
+src/lib/ot/client.js        latest-wins request lane per figure, sync fallback
+src/figures/*.js            one file per figure (three.js is the rotating 3D helix)
 reference/ot_reference.py   NumPy re-implementations (no POT import)
 reference/pot_reference.py  runs the real POT library and compares / regenerates fixtures
 reference/validate.py       cross-checks + emits fixtures.json

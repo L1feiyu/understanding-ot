@@ -11,24 +11,29 @@
  * decline to move that mass.
  */
 
-import { solve, squaredEuclidean, normalizeCost, applyBlocking, totalMass } from '../lib/ot/solvers.js';
+import { squaredEuclidean, normalizeCost, applyBlocking, totalMass, longestRoute } from '../lib/ot/solvers.js';
+import { sharedSolver } from '../lib/ot/client.js';
 import { makeDataset } from '../lib/datasets.js';
 import { drawTransport, prepareCanvas, fitScale } from '../lib/plot.js';
 import { palette } from '../lib/palette.js';
 import {
   el, controlRow, slider, segmented, checkbox, readout, legend,
-  scheduler, onResize, figureWidth, fmt, pct
+  scheduler, onResize, figureWidth, fmt, pct, solverStatus
 } from '../lib/ui.js';
 
 export function blockingFigure(root) {
-  const state = { method: 'supervised', blocked: true, eps: 0.006, tau: 0.25, s: 0.7 };
+  const state = { method: 'supervised', blocked: true, eps: 0.008, tau: 0.25, s: 0.7 };
   const p = palette();
+  const solver = sharedSolver();
+  let warm = null;
 
   const canvas = el('canvas', { class: 'block-canvas' });
   const stats = readout([
     { key: 'mass', label: 'mass moved' },
     { key: 'leak', label: 'mass through forbidden pairs', title: 'Should be exactly zero when supervision is on and the method can express it' },
-    { key: 'agree', label: 'same-class mass', title: 'Share of transported mass that lands on a target of the same class' }
+    { key: 'agree', label: 'same-class mass', title: 'Share of transported mass that lands on a target of the same class' },
+    { key: 'route', label: 'longest route', title: 'Largest cost among routes carrying ≥ 1% of their source point’s mass' },
+    { key: 'conv', label: '' }
   ]);
 
   const paramSlot = el('div', { class: 'param-slot' });
@@ -44,12 +49,12 @@ export function blockingFigure(root) {
         { value: 'supervised', label: 'Supervised' }
       ],
       value: state.method,
-      onChange: (v) => { state.method = v; buildParam(); render(); }
+      onChange: (v) => { state.method = v; warm = null; buildParam(); render(); }
     }),
     checkbox({
       label: 'forbid cross-class couplings',
       checked: state.blocked,
-      onChange: (v) => { state.blocked = v; render(); }
+      onChange: (v) => { state.blocked = v; warm = null; render(); }
     }),
     paramSlot
   ]));
@@ -115,17 +120,8 @@ export function blockingFigure(root) {
     }));
   }
 
-  const render = scheduler(() => {
-    const width = figureWidth(body, 640);
-    const height = Math.round(Math.max(280, Math.min(400, width * 0.72)));
+  function draw(res, C, width, height) {
     const n = data.X.length, m = data.Y.length;
-
-    const C = state.blocked ? applyBlocking(baseC, n, m, isBlocked) : baseC;
-    const res = solve({
-      C, a: data.a, b: data.b, method: state.method,
-      eps: state.eps, s: state.s, tau: state.tau
-    });
-
     const ctx = prepareCanvas(canvas, width, height);
     drawTransport(ctx, {
       X: data.X, Y: data.Y, a: data.a, b: data.b, P: res.P,
@@ -143,7 +139,9 @@ export function blockingFigure(root) {
     stats.update({
       mass: pct(mass),
       leak: leak < 1e-9 ? '0' : fmt(leak, 4),
-      agree: mass > 0 ? pct(same / mass) : '—'
+      agree: mass > 0 ? pct(same / mass) : '—',
+      route: fmt(longestRoute(res.P, baseC, data.a, n, m), 3),
+      conv: solverStatus(res)
     });
 
     verdict.textContent = !state.blocked
@@ -154,7 +152,19 @@ export function blockingFigure(root) {
           ? 'Partial OT keeps the ban, because it may leave mass behind — but you have to guess the right mass fraction yourself.'
           : state.method === 'unbalanced'
             ? 'Unbalanced OT keeps the ban too, at the cost of a τ that trades marginal fit against everything else at once.'
-            : 'Supervised OT enforces the ban exactly and picks the transported mass itself from γ. This is the case it was designed for.';
+            : 'Supervised OT enforces the ban exactly and picks the transported mass itself. This is the case it was designed for.';
+  }
+
+  const render = scheduler(() => {
+    const width = figureWidth(body, 640);
+    const height = Math.round(Math.max(280, Math.min(400, width * 0.72)));
+    const n = data.X.length, m = data.Y.length;
+    const C = state.blocked ? applyBlocking(baseC, n, m, isBlocked) : baseC;
+    solver.latest('blocking', {
+      C, a: data.a, b: data.b, method: state.method,
+      eps: state.eps, s: state.s, tau: state.tau, warmStart: warm
+    }, (res) => { warm = { f: res.f, g: res.g }; draw(res, C, width, height); },
+    { onBusy: (busy) => canvas.classList.toggle('is-computing', busy) });
   });
 
   buildParam();

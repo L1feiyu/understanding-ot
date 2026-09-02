@@ -143,6 +143,44 @@ function rings(n = 44) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* 3D                                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A helix and a damaged copy of it, in three dimensions.
+ *
+ * The target is the same helix turned about the vertical axis and nudged, with
+ * its top turn missing and a stray clump added off to one side. Neighbouring
+ * turns sit close together in 3D, so a distance cutoff can admit matches along
+ * the curve while refusing the jump between turns — which is exactly the case
+ * supervised OT is for.
+ */
+export function helix3d(n = 64) {
+  const next = rng(41);
+  const turns = 3, radius = 0.55, height = 1.6;
+  const point = (t, rot, shift) => {
+    const ang = t * turns * Math.PI * 2 + rot;
+    return [
+      Math.cos(ang) * radius + shift[0] + gaussian(next) * 0.02,
+      (t - 0.5) * height + shift[1] + gaussian(next) * 0.02,
+      Math.sin(ang) * radius + shift[2] + gaussian(next) * 0.02
+    ];
+  };
+  const X = Array.from({ length: n }, (_, i) => point(i / (n - 1), 0, [0, 0, 0]));
+  const keep = Math.round(n * 0.78);
+  const Y = Array.from({ length: keep }, (_, i) => point(i / (n - 1) + 0.004, 0.7, [0.18, 0.08, 0.1]));
+  for (let k = 0; k < 10; k++) {
+    Y.push([0.95 + gaussian(next) * 0.07, 0.55 + gaussian(next) * 0.07, -0.85 + gaussian(next) * 0.07]);
+  }
+  return {
+    name: 'Helix',
+    note: 'The target helix is missing its top turn and carries a stray clump. Balanced OT must serve both anyway.',
+    X, Y, a: uniformMass(X.length), b: uniformMass(Y.length),
+    labelsX: X.map(() => 0), labelsY: Y.map((_, i) => (i < keep ? 0 : 1))
+  };
+}
+
 export const DATASETS = {
   twoBlobs, extraCluster, outlier, imbalance, crossedClasses, rings
 };

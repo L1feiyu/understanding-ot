@@ -285,3 +285,56 @@ test('complementary slackness: the ceiling marks exactly the under-served rows',
 test('the supervised control exposed to the figures is the cutoff', () => {
   assert.equal(METHOD_META.supervised.param.key, 'cutoff');
 });
+
+test('convergence is judged on the KKT residual, not on a plan that stopped moving', async () => {
+  // Regression for a false plateau: on this problem Sinkhorn converges
+  // geometrically to a plan moving 93% of the mass, sits there with |ΔP|
+  // around 1e-12, and then a potential crosses the cap and the true fixed
+  // point turns out to move 59%. Any "the plan stopped changing" rule reports
+  // the wrong answer with full confidence. The KKT residual stays ~1e-2 on the
+  // plateau, which is what lets the solver see through it.
+  const { makeDataset } = await import('../src/lib/datasets.js');
+  const d = makeDataset('rings');
+  const Cr = normalizeCost(squaredEuclidean(d.X, d.Y));
+  const res = solve({ C: Cr, a: d.a, b: d.b, method: 'supervised', eps: 0.01, cutoff: 0.3 });
+  const mass = totalMass(res.P);
+  assert.ok(res.converged, 'should converge');
+  assert.ok(Math.abs(mass - 0.5909) < 2e-3, `mass ${mass} — stopped on the false plateau near 0.93?`);
+
+  // And the fixed point actually satisfies complementary slackness.
+  const nn = d.X.length, mm = d.Y.length;
+  const rows = rowSums(res.P, nn, mm);
+  for (let i = 0; i < nn; i++) {
+    if (res.f[i] >= SOT_GAMMA - 1e-9) assert.ok(rows[i] <= d.a[i] + 1e-6);
+    else assert.ok(Math.abs(rows[i] - d.a[i]) < 1e-6, `row ${i} uncapped but short: ${rows[i]} vs ${d.a[i]}`);
+  }
+});
+
+test('over-relaxation reaches the same fixed point as textbook Sinkhorn', () => {
+  for (const [method, extra] of [['balanced', {}], ['supervised', { cutoff: 0.3 }]]) {
+    const plain = solve({ C: Cn, a: fx.a, b: fx.b, method, eps: 0.01, ...extra, omega: 1, tol: 1e-10 });
+    const fast = solve({ C: Cn, a: fx.a, b: fx.b, method, eps: 0.01, ...extra, omega: 1.7, tol: 1e-10 });
+    let d = 0;
+    for (let k = 0; k < n * m; k++) d = Math.max(d, Math.abs(plain.P[k] - fast.P[k]));
+    assert.ok(d < 1e-7, `${method}: plans differ by ${d}`);
+    assert.ok(fast.iterations < plain.iterations, `${method}: no speedup (${fast.iterations} vs ${plain.iterations})`);
+  }
+});
+
+test('supervised OT bounds the longest route; partial OT at the same mass does not', async () => {
+  const { makeDataset } = await import('../src/lib/datasets.js');
+  const { longestRoute } = await import('../src/lib/ot/solvers.js');
+  const d = makeDataset('extraCluster');
+  const nn = d.X.length, mm = d.Y.length;
+  const Cd = normalizeCost(squaredEuclidean(d.X, d.Y));
+  for (const cutoff of [0.15, 0.21, 0.3]) {
+    const sup = solve({ C: Cd, a: d.a, b: d.b, method: 'supervised', eps: 0.01, cutoff });
+    const mass = totalMass(sup.P);
+    const par = solve({ C: Cd, a: d.a, b: d.b, method: 'partial', eps: 0.01, s: mass });
+    const lsup = longestRoute(sup.P, Cd, d.a, nn, mm);
+    const lpar = longestRoute(par.P, Cd, d.a, nn, mm);
+    assert.ok(lsup <= cutoff + 1e-9, `cutoff=${cutoff}: supervised used a route costing ${lsup}`);
+    assert.ok(Math.abs(totalMass(par.P) - mass) < 1e-4, 'partial should match the mass');
+    assert.ok(lpar > cutoff, `cutoff=${cutoff}: partial at the same mass stayed within the cutoff (${lpar})`);
+  }
+});

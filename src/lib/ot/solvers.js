@@ -166,7 +166,7 @@ export function applyBlocking(C, n, m, blocked, big = 1e6) {
  * @param {number} [o.gamma]   supervised OT: l1 penalty / potential cap (default SOT_GAMMA)
  * @param {number} [o.cutoff]  forbid every route whose cost exceeds this
  * @param {number} [o.nIter]   iterations
- * @param {number} [o.tol]     stop when the marginals stop moving
+ * @param {number} [o.tol]     stop when the potentials stop moving (max |Δf|, |Δg|)
  * @returns {{P:Float64Array, f:Float64Array, g:Float64Array, n:number, m:number,
  *            iterations:number, converged:boolean}}
  */
@@ -214,8 +214,8 @@ function solvePartial(o) {
   const n = a.length, m = b.length;
   // Dykstra converges more slowly than plain Sinkhorn, so it gets a bigger
   // default budget; it exits early once the projections stop moving.
-  const nIter = o.nIter ?? 1200;
-  const tol = o.tol ?? 1e-10;
+  const nIter = o.nIter ?? 8000;
+  const tol = o.tol ?? 1e-6;
 
   let sumA = 0, sumB = 0;
   for (const v of a) sumA += v;
@@ -236,7 +236,10 @@ function solvePartial(o) {
   let T = 0;                       // for { <P,1> = target }
 
   const rowLse = new Float64Array(n), colLse = new Float64Array(m);
-  let iterations = 0, converged = false;
+  const checkEvery = 10;
+  const Pprev = new Float64Array(n * m);
+  let havePrev = false;
+  let iterations = 0, converged = false, residualNow = Infinity;
 
   for (let it = 0; it < nIter; it++) {
     iterations = it + 1;
@@ -270,13 +273,30 @@ function solvePartial(o) {
     for (let i = 0; i < n; i++) F[i] += shift;
     T = -shift;
 
-    // At the fixed point every Dykstra correction vanishes, which is a far more
-    // meaningful stopping test than watching the (already pinned) total mass.
-    if (it % 5 === 4) {
-      let resid = Math.abs(shift);
-      for (let i = 0; i < n; i++) if (R[i] > resid) resid = R[i];
-      for (let j = 0; j < m; j++) if (S[j] > resid) resid = S[j];
-      if (resid < tol) { converged = true; break; }
+    // Convergence: feasible (P1 <= a, P^T1 <= b, mass = s) AND the plan has
+    // stopped moving between checks. Feasibility alone is not enough — the
+    // uncorrected iteration is feasible too — and plan-change alone can fire
+    // on a plateau. (Dykstra's corrections R, S, T never vanish; they converge
+    // to the constraint multipliers, so watching them would never stop.)
+    if (it % checkEvery === checkEvery - 1) {
+      let dP = 0, over = 0, total = 0;
+      const rsum = new Float64Array(n), csum = new Float64Array(m);
+      for (let i = 0; i < n; i++) {
+        const fi = F[i], base = i * m;
+        for (let j = 0; j < m; j++) {
+          const v = Math.exp((fi + G[j] - C[base + j]) / eps);
+          const d = Math.abs(v - Pprev[base + j]);
+          if (d > dP) dP = d;
+          Pprev[base + j] = v;
+          rsum[i] += v; csum[j] += v; total += v;
+        }
+      }
+      for (let i = 0; i < n; i++) if (rsum[i] - a[i] > over) over = rsum[i] - a[i];
+      for (let j = 0; j < m; j++) if (csum[j] - b[j] > over) over = csum[j] - b[j];
+      const infeas = Math.max(over, Math.abs(total - target));
+      residualNow = Math.max(infeas, havePrev ? dP : Infinity);
+      if (havePrev && dP < tol && infeas < tol) { converged = true; break; }
+      havePrev = true;
     }
   }
 
@@ -292,6 +312,7 @@ function solvePartial(o) {
 
   return {
     P, f: F, g: G, n, m, iterations, converged,
+    residual: residualNow,
     targetMass: target,
     gammaEquivalent: (maxF + maxG) / 2
   };
@@ -302,8 +323,12 @@ function sinkhornLoop(o) {
   const a = Float64Array.from(o.a);
   const b = Float64Array.from(o.b);
   const n = a.length, m = b.length;
-  const nIter = o.nIter ?? 400;
-  const tol = o.tol ?? 1e-9;
+  // Sinkhorn needs O(1/eps) iterations; the early exit makes a large budget
+  // cheap when it is not needed and correct when it is.
+  const nIter = o.nIter ?? 20000;
+  // On the KKT residual. Marginals are O(1/n), so 1e-6 is a relative error of
+  // well under 1e-4 on any figure here; tighten it for numerical work.
+  const tol = o.tol ?? 1e-6;
 
   if (C.length !== n * m) throw new Error(`cost matrix is ${C.length}, expected ${n * m}`);
   if (!METHODS.includes(method)) throw new Error(`unknown method "${method}"`);
@@ -320,6 +345,12 @@ function sinkhornLoop(o) {
   const tau = o.tau ?? 1;
   const gamma = o.gamma ?? Infinity;
   const shrink = tau / (tau + eps);
+  // Over-relaxation (Thibault, Chizat, Dossal, Papadakis 2017): step past the
+  // plain Sinkhorn update by a factor omega in (1, 2). Same fixed point, about
+  // half the iterations. Applied where the update is a pure scaling (balanced,
+  // supervised); the shrink and Dykstra paths keep 1. Pass omega: 1 to
+  // reproduce textbook Sinkhorn step for step.
+  const omega = o.omega ?? 1.7;
 
   // Warm-started potentials must still respect the cap they are reused under.
   if (method === 'supervised' && o.warmStart) {
@@ -339,7 +370,23 @@ function sinkhornLoop(o) {
   const rowLse = new Float64Array(n);
   const colLse = new Float64Array(m);
   let iterations = 0, converged = false;
-  let prevMass = NaN;
+
+  // Convergence is judged on the KKT residual of each method's fixed point,
+  // checked every few iterations. Neither "potentials stopped moving" nor
+  // "plan stopped moving" is safe here: with a cap in play, Sinkhorn converges
+  // GEOMETRICALLY to a false plateau, then a potential crosses the cap and the
+  // plan jumps to a different regime. The residual stays large on the plateau
+  // and is the only test that tells the two apart.
+  //
+  //   balanced     P1 = a                        exactly
+  //   supervised   f < γ  =>  P1 = a ;   f = γ  =>  P1 <= a
+  //   unbalanced   P1 = a · exp(−f/τ)             (KL optimality)
+  //   partial*     P1 <= a,  <P,1> = s            (*alternating variant only)
+  //
+  // and the same for columns.
+  const checkEvery = 10;
+  const rs = new Float64Array(n), cs = new Float64Array(m);
+  let residualNow = Infinity;
 
   for (let it = 0; it < nIter; it++) {
     iterations = it + 1;
@@ -348,14 +395,14 @@ function sinkhornLoop(o) {
     rowLogSumExp(f, g, C, eps, n, m, rowLse);
     for (let i = 0; i < n; i++) {
       const corr = eps * logA[i] - rowLse[i];
-      f[i] = project(f[i], corr, method, shrink, gamma);
+      f[i] = project(f[i], corr, method, shrink, gamma, omega);
     }
 
     // ---- column half-step ----------------------------------------------
     colLogSumExp(f, g, C, eps, n, m, colLse);
     for (let j = 0; j < m; j++) {
       const corr = eps * logB[j] - colLse[j];
-      g[j] = project(g[j], corr, method, shrink, gamma);
+      g[j] = project(g[j], corr, method, shrink, gamma, omega);
     }
 
     // ---- partial OT only: pin the total transported mass to s ----------
@@ -369,14 +416,29 @@ function sinkhornLoop(o) {
       for (let j = 0; j < m; j++) g[j] += corr;
     }
 
-    // ---- cheap convergence check ---------------------------------------
-    if (it % 5 === 4) {
-      let mass = 0;
+    // ---- convergence: KKT residual ------------------------------------
+    if (it % checkEvery === checkEvery - 1) {
+      rs.fill(0); cs.fill(0);
+      let total = 0;
       for (let i = 0; i < n; i++) {
-        for (let j = 0; j < m; j++) mass += Math.exp((f[i] + g[j] - C[i * m + j]) / eps);
+        const fi = f[i], base = i * m;
+        for (let j = 0; j < m; j++) {
+          const v = Math.exp((fi + g[j] - C[base + j]) / eps);
+          rs[i] += v; cs[j] += v; total += v;
+        }
       }
-      if (Math.abs(mass - prevMass) < tol * Math.max(1, mass)) { converged = true; break; }
-      prevMass = mass;
+      let resid = 0;
+      for (let i = 0; i < n; i++) {
+        const r = residual(method, rs[i], a[i], f[i], gamma, tau);
+        if (r > resid) resid = r;
+      }
+      for (let j = 0; j < m; j++) {
+        const r = residual(method, cs[j], b[j], g[j], gamma, tau);
+        if (r > resid) resid = r;
+      }
+      if (method === 'partial') resid = Math.max(resid, Math.abs(total - s));
+      residualNow = resid;
+      if (resid < tol) { converged = true; break; }
     }
   }
 
@@ -384,15 +446,25 @@ function sinkhornLoop(o) {
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) P[i * m + j] = Math.exp((f[i] + g[j] - C[i * m + j]) / eps);
   }
-  return { P, f, g, n, m, iterations, converged };
+  return { P, f, g, n, m, iterations, converged, residual: residualNow };
 }
 
-function project(cur, corr, method, shrink, gamma) {
+/** How far one marginal is from its method's fixed-point condition. */
+function residual(method, sum, target, pot, gamma, tau) {
   switch (method) {
-    case 'balanced':   return cur + corr;
+    case 'balanced':   return Math.abs(sum - target);
+    case 'supervised': return pot >= gamma - 1e-12 ? Math.max(0, sum - target) : Math.abs(sum - target);
+    case 'unbalanced': return Math.abs(sum - target * Math.exp(-pot / tau));
+    case 'partial':    return Math.max(0, sum - target);
+  }
+}
+
+function project(cur, corr, method, shrink, gamma, omega) {
+  switch (method) {
+    case 'balanced':   return cur + omega * corr;
     case 'partial':    return cur + Math.min(corr, 0);
     case 'unbalanced': return shrink * (cur + corr);
-    case 'supervised': return Math.min(cur + corr, gamma);
+    case 'supervised': return Math.min(cur + omega * corr, gamma);
   }
 }
 
@@ -464,6 +536,28 @@ export function transportCost(P, C) {
   return s;
 }
 
+/**
+ * The most expensive route the plan actually uses: the largest C[i][j] among
+ * pairs carrying at least `share` of their source point's mass. Entropic plans
+ * put a vanishing trace of mass on every permitted pair, so a raw max would
+ * only report noise; the share threshold asks for routes that matter.
+ *
+ * This is the quantity supervised OT controls and the others cannot. With a
+ * cutoff in force it is bounded by the cutoff by construction; partial OT at
+ * the same transported mass is free to exceed it.
+ */
+export function longestRoute(P, C, a, n, m, share = 0.01) {
+  let longest = 0;
+  for (let i = 0; i < n; i++) {
+    const floor = share * a[i];
+    for (let j = 0; j < m; j++) {
+      const k = i * m + j;
+      if (P[k] >= floor && C[k] < 1e5 && C[k] > longest) longest = C[k];
+    }
+  }
+  return longest;
+}
+
 /** Summary statistics used by the figures' readouts. */
 export function diagnostics(P, C, a, b, n, m) {
   const r = rowSums(P, n, m), c = colSums(P, n, m);
@@ -475,6 +569,7 @@ export function diagnostics(P, C, a, b, n, m) {
     mass,
     massFraction: mass / Math.max(sa, sb),
     cost: transportCost(P, C),
+    longestRoute: longestRoute(P, C, a, n, m),
     rowSums: r,
     colSums: c,
     sourceViolation: l1a,
