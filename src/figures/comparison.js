@@ -23,7 +23,7 @@ const METHODS = ['balanced', 'partial', 'unbalanced', 'supervised'];
 
 export function comparisonFigure(root) {
   const state = {
-    dataset: 'extraCluster',
+    dataset: 'bakeries',
     eps: 0.008,
     s: 0.6,
     tau: 0.25,
@@ -50,10 +50,16 @@ export function comparisonFigure(root) {
   ]);
 
   body.appendChild(controls);
-  body.appendChild(legend([
+  const legendNode = legend([
     { colour: p.source, label: 'source' },
     { colour: p.target, label: 'target' }
-  ]));
+  ]);
+  body.appendChild(legendNode);
+  const setLegend = (d) => {
+    const items = legendNode.querySelectorAll('.legend-item span:last-child');
+    items[0].textContent = (d.legend && d.legend.source) || 'source';
+    items[1].textContent = (d.legend && d.legend.target) || 'target';
+  };
   body.appendChild(el('p', {
     class: 'fig-hint',
     text: 'A point is drawn solid when the plan moves all of its mass and hollow when it keeps it. Hover a point to isolate its flows. "Longest route" is the costliest pair carrying at least 1% of its source’s mass.'
@@ -71,6 +77,7 @@ export function comparisonFigure(root) {
   function rebuild() {
     data = makeDataset(state.dataset);
     note.textContent = data.note;
+    setLegend(data);
     C = null;
     panels.forEach((pn) => pn.reset());
     render();
@@ -87,6 +94,7 @@ export function comparisonFigure(root) {
 
   const note = el('p', { class: 'fig-note', text: data.note });
   body.appendChild(note);
+  setLegend(data);
 
   onResize(grid, render);
   render();
@@ -155,10 +163,12 @@ function makePanel(method, state, requestRender, tip) {
 
   function draw(data, C, width, height, res) {
     const ctx = prepareCanvas(canvas, width, height);
-    const scale = fitScale(width, height, [data.X, data.Y], 20);
+    const scenePts = (data.scene || []).flatMap((it) => it.points || (it.at ? [it.at] : []));
+    const scale = fitScale(width, height, [data.X, data.Y, scenePts], 20);
     const info = drawTransport(ctx, {
       X: data.X, Y: data.Y, a: data.a, b: data.b, P: res.P,
-      width, height, scale, highlight: data.highlightX, focus: state.focus
+      width, height, scale, highlight: data.highlightX, focus: state.focus,
+      scene: data.scene, marker: data.marker
     });
     const d = diagnostics(res.P, C, data.a, data.b, data.X.length, data.Y.length);
     stats.update({

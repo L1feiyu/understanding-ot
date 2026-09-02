@@ -9,7 +9,6 @@ import { comparisonFigure } from './figures/comparison.js';
 import { couplingFigure } from './figures/coupling.js';
 import { projectionsFigure } from './figures/projections.js';
 import { massCurveFigure } from './figures/massCurve.js';
-import { blockingFigure } from './figures/blocking.js';
 import { threeFigure } from './figures/three.js';
 import { invalidatePalette } from './lib/palette.js';
 
@@ -18,7 +17,6 @@ const FIGURES = [
   ['fig-coupling', couplingFigure],
   ['fig-projections', projectionsFigure],
   ['fig-mass', massCurveFigure],
-  ['fig-blocking', blockingFigure],
   ['fig-three', threeFigure]
 ];
 

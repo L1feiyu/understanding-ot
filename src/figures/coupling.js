@@ -58,14 +58,14 @@ export function couplingFigure(root) {
   ]);
   body.appendChild(panes);
   body.appendChild(legend([
-    { colour: p.source, label: 'source marginal a' },
-    { colour: p.target, label: 'target marginal b' }
+    { colour: p.source, label: 'slice 1 — marginal a' },
+    { colour: p.target, label: 'slice 2 — marginal b' }
   ]));
   body.appendChild(stats);
   root.appendChild(body);
 
   const tip = tooltip(body);
-  const data = makeDataset('imbalance', 36);
+  const data = makeDataset('tissue');
   const C = normalizeCost(squaredEuclidean(data.X, data.Y));
   let picker = null;
   let warm = null;
@@ -94,7 +94,8 @@ export function couplingFigure(root) {
     const sctx = prepareCanvas(scatter, size, size);
     drawTransport(sctx, {
       X: data.X, Y: data.Y, a: data.a, b: data.b, P: res.P,
-      width: size, height: size, scale: fitScale(size, size, [data.X, data.Y], 20)
+      width: size, height: size, scale: fitScale(size, size, [data.X, data.Y], 20),
+      scene: data.scene, marker: data.marker
     });
     const d = diagnostics(res.P, C, data.a, data.b, data.X.length, data.Y.length);
     stats.update({

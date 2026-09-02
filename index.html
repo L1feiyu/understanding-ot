@@ -8,6 +8,7 @@
 <meta property="og:title" content="Understanding Relaxed Optimal Transport">
 <meta property="og:description" content="Partial, unbalanced and supervised optimal transport, compared interactively.">
 <meta property="og:type" content="article">
+<link rel="stylesheet" href="./vendor/katex/katex.min.css">
 <link rel="stylesheet" href="./src/global.css">
 </head>
 <body>
@@ -33,43 +34,157 @@
 <p>
   Optimal transport asks a concrete question: given a pile of mass arranged one way and a hole
   shaped another way, what is the cheapest way to move the first into the second? Write the source
-  masses as a vector <code>a</code>, the target masses as <code>b</code>, and the cost of moving a
-  unit from source <em>i</em> to target <em>j</em> as <code>C[i][j]</code>. The Kantorovich problem
-  looks for a transport plan <code>P</code>, where <code>P[i][j]</code> is how much mass takes the
-  route from <em>i</em> to <em>j</em>:
+  masses as a vector \(a\), the target masses as \(b\), and the cost of moving one unit from source
+  \(i\) to target \(j\) as \(C_{ij}\). The Kantorovich problem looks for a transport plan \(P\),
+  where \(P_{ij}\) is how much mass takes the route from \(i\) to \(j\):
 </p>
 
-<div class="eq">minimise   &lt;P, C&gt;   over   U(a, b) = { P ≥ 0 :  P·1 = a,  Pᵀ·1 = b }</div>
+$$
+\min_{P \in U(a,b)} \langle P, C\rangle,
+\qquad
+U(a,b) = \{\, P \ge 0 \;:\; P\mathbf{1} = a,\;\; P^{\top}\mathbf{1} = b \,\}.
+$$
+
+<figure class="schematic">
+<svg viewBox="0 0 800 232" role="img" aria-labelledby="schem-title" xmlns="http://www.w3.org/2000/svg">
+  <title id="schem-title">The four transport problems at a glance</title>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--flow)"/>
+    </marker>
+    <linearGradient id="halfS" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0.55" style="stop-color: var(--source)"/>
+      <stop offset="0.55" style="stop-color: var(--surface-1)"/>
+    </linearGradient>
+    <linearGradient id="halfT" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0.55" style="stop-color: var(--target)"/>
+      <stop offset="0.55" style="stop-color: var(--surface-1)"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .sc-title { font: 600 13px var(--font-sans); fill: var(--text-primary); }
+    .sc-cap   { font: 11px var(--font-sans); fill: var(--text-secondary); }
+    .sc-k     { font: 500 11px var(--font-mono); fill: var(--text-muted); }
+    .sc-flow  { stroke: var(--flow); stroke-width: 1.6; fill: none; marker-end: url(#arr); opacity: 0.75; }
+    .sc-flow.thin { stroke-width: 1; opacity: 0.45; }
+    .sc-flow.thick { stroke-width: 2.4; opacity: 0.9; }
+    .s-full   { fill: var(--source); stroke: var(--source); stroke-width: 1.5; }
+    .s-empty  { fill: var(--surface-1); stroke: var(--source); stroke-width: 1.5; }
+    .s-half   { fill: url(#halfS); stroke: var(--source); stroke-width: 1.5; }
+    .t-full   { fill: var(--target); stroke: var(--target); stroke-width: 1.5; }
+    .t-empty  { fill: var(--surface-1); stroke: var(--target); stroke-width: 1.5; }
+    .t-half   { fill: url(#halfT); stroke: var(--target); stroke-width: 1.5; }
+    .sc-reach { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 4 3; }
+    .sc-sep   { stroke: var(--rule); stroke-width: 1; }
+  </style>
+
+  <!-- ===== Balanced ===== -->
+  <g transform="translate(10,0)">
+    <text class="sc-title" x="90" y="20" text-anchor="middle">Balanced</text>
+    <path class="sc-flow" d="M 52 62 L 128 60"/>
+    <path class="sc-flow" d="M 52 102 L 128 104"/>
+    <path class="sc-flow" d="M 52 142 L 128 146"/>
+    <circle class="s-full" cx="44" cy="62" r="7"/>
+    <circle class="s-full" cx="44" cy="102" r="7"/>
+    <circle class="s-full" cx="44" cy="142" r="7"/>
+    <circle class="t-full" cx="136" cy="60" r="7"/>
+    <circle class="t-full" cx="136" cy="104" r="7"/>
+    <circle class="t-full" cx="136" cy="146" r="7"/>
+    <text class="sc-cap" x="90" y="184" text-anchor="middle">Everything moves.</text>
+    <text class="sc-cap" x="90" y="200" text-anchor="middle">Every marginal is met exactly.</text>
+    <text class="sc-k" x="90" y="220" text-anchor="middle">no knob</text>
+  </g>
+  <line class="sc-sep" x1="205" y1="36" x2="205" y2="212"/>
+
+  <!-- ===== Partial ===== -->
+  <g transform="translate(210,0)">
+    <text class="sc-title" x="90" y="20" text-anchor="middle">Partial</text>
+    <path class="sc-flow" d="M 52 62 L 128 60"/>
+    <path class="sc-flow" d="M 52 102 L 128 146"/>
+    <circle class="s-full" cx="44" cy="62" r="7"/>
+    <circle class="s-full" cx="44" cy="102" r="7"/>
+    <circle class="s-empty" cx="44" cy="142" r="7"/>
+    <circle class="t-full" cx="136" cy="60" r="7"/>
+    <circle class="t-empty" cx="136" cy="104" r="7"/>
+    <circle class="t-full" cx="136" cy="146" r="7"/>
+    <text class="sc-cap" x="90" y="184" text-anchor="middle">A fixed share of the mass moves.</text>
+    <text class="sc-cap" x="90" y="200" text-anchor="middle">Any distance is allowed.</text>
+    <text class="sc-k" x="90" y="220" text-anchor="middle">knob: mass s</text>
+  </g>
+  <line class="sc-sep" x1="405" y1="36" x2="405" y2="212"/>
+
+  <!-- ===== Unbalanced ===== -->
+  <g transform="translate(410,0)">
+    <text class="sc-title" x="90" y="20" text-anchor="middle">Unbalanced</text>
+    <path class="sc-flow thick" d="M 52 62 L 128 60"/>
+    <path class="sc-flow" d="M 52 102 L 128 104"/>
+    <path class="sc-flow thin" d="M 52 142 L 128 146"/>
+    <circle class="s-half" cx="44" cy="62" r="7"/>
+    <circle class="s-half" cx="44" cy="102" r="7"/>
+    <circle class="s-half" cx="44" cy="142" r="7"/>
+    <circle class="t-half" cx="136" cy="60" r="7"/>
+    <circle class="t-half" cx="136" cy="104" r="7"/>
+    <circle class="t-half" cx="136" cy="146" r="7"/>
+    <text class="sc-cap" x="90" y="184" text-anchor="middle">Every marginal bends a little.</text>
+    <text class="sc-cap" x="90" y="200" text-anchor="middle">Nothing exact, nothing stranded.</text>
+    <text class="sc-k" x="90" y="220" text-anchor="middle">knob: penalty τ</text>
+  </g>
+  <line class="sc-sep" x1="605" y1="36" x2="605" y2="212"/>
+
+  <!-- ===== Supervised ===== -->
+  <g transform="translate(610,0)">
+    <text class="sc-title" x="90" y="20" text-anchor="middle">Supervised</text>
+    <circle class="sc-reach" cx="44" cy="62" r="30"/>
+    <circle class="sc-reach" cx="44" cy="142" r="30"/>
+    <path class="sc-flow" d="M 52 62 L 60 62"/>
+    <path class="sc-flow" d="M 52 102 L 60 103"/>
+    <circle class="s-full" cx="44" cy="62" r="7"/>
+    <circle class="s-full" cx="44" cy="102" r="7"/>
+    <circle class="s-empty" cx="44" cy="142" r="7"/>
+    <circle class="t-full" cx="68" cy="62" r="7"/>
+    <circle class="t-full" cx="68" cy="104" r="7"/>
+    <circle class="t-empty" cx="136" cy="146" r="7"/>
+    <text class="sc-cap" x="90" y="184" text-anchor="middle">Nothing travels past the cutoff.</text>
+    <text class="sc-cap" x="90" y="200" text-anchor="middle">The mass moved follows from that.</text>
+    <text class="sc-k" x="90" y="220" text-anchor="middle">knob: reach r</text>
+  </g>
+</svg>
+<figcaption>
+  <span class="figure-number">At a glance. </span>
+  Blue is supply, orange is demand; a solid marker has all of its mass accounted for, a hollow one has
+  been left where it is, a half-filled one has been partly served. The dashed circles in the last panel
+  are the reach: a route longer than that does not exist, whatever the marginals would prefer.
+</figcaption>
+</figure>
 
 <p>
-  Those two equalities are the entire subject of this article. <code>P·1 = a</code> says every source
-  point ships all of its mass. <code>Pᵀ·1 = b</code> says every target point receives exactly what it
-  asked for. Together they make the feasible set a polytope of plans that all move the same total
-  amount, and the only question left is which routes to use.
+  Those two equalities are the entire subject of this article. \(P\mathbf{1} = a\) says every
+  source point ships all of its mass. \(P^{\top}\mathbf{1} = b\) says every target point receives
+  exactly what it asked for. Together they make the feasible set a polytope of plans that all move
+  the same total amount, and the only question left is which routes to use.
 </p>
 
 <p>
-  That is a strong assumption, and in practice it is frequently false. Your source cloud has an
-  outlier that corresponds to nothing. Your target has a whole cluster the source never sampled.
-  Your two datasets are 70/30 and 30/70 splits of the same two classes, so matching the marginals
-  exactly <em>requires</em> shipping mass between classes that have nothing to do with each other.
-  In each case the constraint is not a description of the problem — it is a bug, and it forces the
+  That is a strong assumption, and in practice it is frequently false. Your source has a bakery
+  that bakes more than the town can eat. Your target has a café across the river that no bakery can
+  reasonably serve. Your two tissue slices were cut a millimetre apart and one of them is torn. In
+  each case the constraint is not a description of the problem — it is a bug, and it forces the
   plan to invent correspondences to satisfy an accounting rule.
 </p>
 
 <p>
   The figure below runs all four problems on the same points with the same entropic regularisation.
-  Start with <strong>Extra cluster</strong>: the target has a third mode with nothing to match it,
-  and balanced OT has no choice but to fill it from somewhere.
+  Start with the <strong>bakeries and cafés</strong>: marker size is supply or demand, and two cafés
+  sit across the river.
 </p>
 
 <figure>
   <div id="fig-comparison"></div>
   <figcaption>
-    <span class="figure-number">Figure 1: </span>
-    The same source and target under four transport problems. Point area is mass; a point is drawn
+    <span class="figure-number">Figure 1.</span>
+    The same source and target under four transport problems. Marker area is mass; a marker is drawn
     solid when the plan moves all of its mass, and hollow when it keeps it. Balanced OT never leaves
-    a point hollow — it cannot. The other three can, and the parameter under each panel controls how
+    a marker hollow — it cannot. The other three can, and the control under each panel sets how
     readily they do.
   </figcaption>
 </figure>
@@ -83,19 +198,26 @@
   equalities with inequalities, and pin the total:
 </p>
 
-<div class="eq">minimise   &lt;P, C&gt;   subject to   P·1 ≤ a,   Pᵀ·1 ≤ b,   &lt;P, 1&gt; = s</div>
+$$
+\begin{gathered}
+\min_{P \in U(\le a,\, \le b)} \langle P, C\rangle
+\quad\text{subject to}\quad
+\langle P, \mathbf{1}\rangle = s, \\[6pt]
+U(\le a,\, \le b) = \{\, P \ge 0 \;:\; P\mathbf{1} \le a,\;\; P^{\top}\mathbf{1} \le b \,\}.
+\end{gathered}
+$$
 
 <p>
   Now a source point may keep some or all of its mass, and a target point may go partly unfilled.
-  The parameter <code>s</code> is the fraction of mass you are willing to move. This is the oldest
-  of the three relaxations — it goes back to Caffarelli and McCann's work on the free-boundary
-  problem, and it is the natural formulation when you genuinely know the overlap, for instance
-  because you know what fraction of your sample is contaminated.
+  The parameter \(s\) is the fraction of mass you are willing to move. This is the oldest of the
+  three relaxations — it goes back to Caffarelli and McCann's work on the free-boundary problem —
+  and it is the natural formulation when you genuinely know the overlap, for instance because you
+  know what fraction of your sample is contaminated.
 </p>
 
 <p>
-  The catch is in that same sentence. <code>s</code> is a quantity, and you have to supply it. If
-  you knew how much of your data was junk you would often not need the method.
+  The catch is in that same sentence. \(s\) is a quantity, and you have to supply it. If you knew
+  how much of your data was junk you would often not need the method.
 </p>
 
 <h3>Unbalanced OT: make the marginals negotiable</h3>
@@ -106,67 +228,77 @@
   Peyré, Schmitzer and Vialard:
 </p>
 
-<div class="eq">minimise   &lt;P, C&gt; + τ·KL(P·1 ‖ a) + τ·KL(Pᵀ·1 ‖ b)</div>
+$$
+\min_{P \ge 0}\;
+\langle P, C\rangle
++ \tau\,\mathrm{KL}\!\left(P\mathbf{1} \,\|\, a\right)
++ \tau\,\mathrm{KL}\!\left(P^{\top}\mathbf{1} \,\|\, b\right).
+$$
 
 <p>
-  There is no hard constraint left at all. Small <code>τ</code> means the marginals barely matter
-  and almost nothing moves; large <code>τ</code> recovers balanced OT in the limit. Because KL is
-  smooth, mass responds smoothly to <code>τ</code> — there are no jumps, which is exactly what you
-  want if the relaxation sits inside a larger model you are differentiating through.
+  There is no hard constraint left at all. Small \(\tau\) means the marginals barely matter and
+  almost nothing moves; large \(\tau\) recovers balanced OT in the limit. Because KL is smooth, mass
+  responds smoothly to \(\tau\) — there are no jumps, which is exactly what you want if the
+  relaxation sits inside a larger model you are differentiating through.
 </p>
 
 <p>
-  The cost of that smoothness is that <code>τ</code> is a single dial controlling a soft trade-off
-  with no natural units. It does not correspond to a quantity you can measure, and it interacts with
-  <code>ε</code>, with the scale of <code>C</code>, and with the total mass all at once.
+  The cost of that smoothness is that \(\tau\) is a single dial controlling a soft trade-off with no
+  natural units. It does not correspond to a quantity you can measure, and it interacts with
+  \(\varepsilon\), with the scale of \(C\), and with the total mass all at once.
 </p>
 
 <h3>Supervised OT: forbid the routes, and let the mass follow</h3>
 
 <p>
-  Supervised OT, introduced by Cang, Nie and Zhao, also relaxes the marginals — with an ℓ¹ penalty
-  rather than a KL one, over plans that may undershoot:
+  Supervised OT, introduced by Cang, Nie and Zhao, also relaxes the marginals — with an \(\ell^1\)
+  penalty rather than a KL one, over plans that may undershoot:
 </p>
 
-<div class="eq">minimise   &lt;P, C&gt; + γ·( ‖a − P·1‖₁ + ‖b − Pᵀ·1‖₁ )   over   P·1 ≤ a,  Pᵀ·1 ≤ b</div>
+$$
+\min_{P \in U(\le a,\, \le b)}\;
+\langle P, C\rangle
++ \gamma\Big( \|a - P\mathbf{1}\|_1 + \|b - P^{\top}\mathbf{1}\|_1 \Big).
+$$
 
 <p>
-  But <code>γ</code> is not where this method lives, and reading it as "the supervised OT knob" gets
-  the whole thing backwards. In practice <code>γ</code> is a <em>constant</em>: normalise the cost
-  matrix to <code>(0,1)</code>, set <code>γ = 2</code>, and never touch it again.
+  But \(\gamma\) is not where this method lives, and reading it as "the supervised OT knob" gets
+  the whole thing backwards. In practice \(\gamma\) is a <em>constant</em>: normalise the cost matrix
+  to \((0,1)\), set \(\gamma = 2\), and never touch it again.
 </p>
 
 <p>
-  The reason is a one-line calculation. Over plans with <code>P·1 ≤ a</code>, the ℓ¹ term is not
-  really a norm — it is just the unmoved mass, <code>‖a − P·1‖₁ = |a| − ⟨P,1⟩</code>, and likewise
-  for <code>b</code>. So the objective collapses to <code>⟨P, C − 2γ⟩</code> plus a constant, and
-  a route is worth using exactly when <code>C[i][j] &lt; 2γ</code>. (The factor of two is because
-  moving a unit relieves the penalty at <em>both</em> ends.) With every cost at most <code>1</code>
-  and <code>γ = 2</code>, that threshold sits at <code>4</code> — above everything in the matrix.
-  The price never bites. Every route that is <em>allowed</em> gets used, and <code>γ</code> is
-  chosen precisely to guarantee that: it is set large enough to get out of the way.
+  The reason is a one-line calculation. Over plans with \(P\mathbf{1} \le a\), the \(\ell^1\) term
+  is not really a norm — it is just the unmoved mass, \(\|a - P\mathbf{1}\|_1 = |a| - \langle P,
+  \mathbf{1}\rangle\), and likewise for \(b\). So the objective collapses to
+  \(\langle P,\, C - 2\gamma\rangle\) plus a constant, and a route is worth using exactly when
+  \(C_{ij} < 2\gamma\). (The factor of two is because moving a unit relieves the penalty at
+  <em>both</em> ends.) With every cost at most \(1\) and \(\gamma = 2\), that threshold sits at
+  \(4\) — above everything in the matrix. The price never bites. Every route that is
+  <em>allowed</em> gets used, and \(\gamma\) is chosen precisely to guarantee that: it is set large
+  enough to get out of the way.
 </p>
 
 <p>
   What decides the plan, then, is which routes are allowed at all. This is the part the name refers
-  to: supervised OT lets you forbid a route outright by setting <code>C[i][j] = ∞</code>, and the
-  usual way to do that is a <strong>cutoff</strong> — everything costing more than some threshold is
-  out. Mass whose only partners lie beyond the cutoff has nowhere permitted to go, so it stays.
+  to: supervised OT lets you forbid a route outright by setting \(C_{ij} = \infty\), and the usual
+  way to do that is a <strong>cutoff</strong> — everything costing more than some threshold is out.
+  Mass whose only partners lie beyond the cutoff has nowhere permitted to go, so it stays.
 </p>
 
 <p>
   So the knob is the cutoff, and it is denominated in the units of the cost matrix: a distance, a
   dissimilarity, an interaction radius. That is a categorically different thing to specify than
-  <code>s</code> or <code>τ</code>. You are not saying <em>how much</em> mass should move, nor how
-  badly you want the marginals — you are saying <em>how far mass is allowed to travel</em>, and the
-  amount that moves is an output, not an input.
+  \(s\) or \(\tau\). You are not saying <em>how much</em> mass should move, nor how badly you want
+  the marginals — you are saying <em>how far mass is allowed to travel</em>, and the amount that
+  moves is an output, not an input.
 </p>
 
 <blockquote class="aside">
   <p>
     The cutoff need not be a distance threshold. Any rule that says which pairs may correspond works
     the same way — matching labels, compatible cell types, a time ordering that forbids going
-    backwards. A threshold on <code>C</code> is just the most common form of it.
+    backwards. A threshold on \(C\) is just the most common form of it.
   </p>
 </blockquote>
 
@@ -181,10 +313,11 @@
 <figure>
   <div id="fig-coupling"></div>
   <figcaption>
-    <span class="figure-number">Figure 2: </span>
-    The transport plan as a matrix, on a source and target with mirrored 75/25 class proportions.
-    Balanced OT fills every bar completely and pays for it with a smeared, off-diagonal plan.
-    The other three leave bars short — which is the point — and each leaves them short in a
+    <span class="figure-number">Figure 2.</span>
+    The transport plan as a matrix, on the two tissue slices. Cells are ordered by layer, so each
+    layer is a block along the diagonal; the torn outer layer of slice 2 shows up as a run of short
+    target bars. Balanced OT fills every bar completely and pays for it with mass smeared across
+    layers. The other three leave bars short — which is the point — and each leaves them short in a
     characteristic pattern.
   </figcaption>
 </figure>
@@ -193,20 +326,27 @@
 
 <p>
   Add an entropy term and every problem in this article becomes the same kind of object. Write
-  <code>K = exp(−C/ε)</code> for the Gibbs kernel. Then entropic OT is a
-  <em>KL projection</em>: find the plan closest to <code>K</code>, in Kullback–Leibler divergence,
-  that satisfies the constraints.
+  \(K = e^{-C/\varepsilon}\) for the Gibbs kernel. Then entropic OT is a <em>KL projection</em>:
+  find the plan closest to \(K\), in Kullback–Leibler divergence, that satisfies the constraints.
 </p>
 
-<div class="eq">minimise   KL(P ‖ K)   over   P ∈ 𝒞        <span class="lbl">where  KL(P ‖ K) = Σᵢⱼ P·log(P/K) − P + K</span></div>
+$$
+\min_{P \in \mathcal{C}}\ \mathrm{KL}(P \,\|\, K),
+\qquad
+\mathrm{KL}(P \,\|\, K) = \sum_{ij} P_{ij} \log\frac{P_{ij}}{K_{ij}} - P_{ij} + K_{ij}.
+$$
 
 <p>
-  This is the view of Benamou, Carlier, Cuturi, Nenna and Peyré, and it is worth adopting because KL
-  projections onto marginal constraints are cheap and explicit. Projecting <code>P</code> onto
-  <code>{ P·1 = a }</code> is a row scaling; onto <code>{ Pᵀ·1 = b }</code>, a column scaling:
+  This is the view of Benamou, Carlier, Cuturi, Nenna and Peyré, and it is worth adopting because
+  KL projections onto marginal constraints are cheap and explicit. Projecting \(P\) onto
+  \(\{P\mathbf{1} = a\}\) is a row scaling; onto \(\{P^{\top}\mathbf{1} = b\}\), a column scaling:
 </p>
 
-<div class="eq">Π<span class="lbl">rows</span>(P)  =  diag( a / (P·1) ) · P              Π<span class="lbl">cols</span>(P)  =  P · diag( b / (Pᵀ·1) )</div>
+$$
+\Pi_{\text{rows}}(P) = \mathrm{diag}\!\left(\frac{a}{P\mathbf{1}}\right) P,
+\qquad
+\Pi_{\text{cols}}(P) = P\,\mathrm{diag}\!\left(\frac{b}{P^{\top}\mathbf{1}}\right).
+$$
 
 <p>
   Sinkhorn's algorithm is nothing more than alternating these two projections. Both sets are
@@ -217,46 +357,55 @@
 <p>
   The three relaxations each change what is being projected onto — or replace a constraint with a
   penalty, in which case the projection becomes a <em>proximal</em> step in the same geometry.
+  Writing \(P = \mathrm{diag}(u)\,K\,\mathrm{diag}(v)\), the row update of each is one line:
 </p>
+
+$$
+\begin{aligned}
+\text{balanced:}\quad & u \leftarrow \frac{a}{Kv} \\[6pt]
+\text{partial:}\quad & u \leftarrow u \cdot \min\!\left(1,\ \frac{a}{P\mathbf{1}}\right)
+  \quad\text{(+ Dykstra corrections)} \\[6pt]
+\text{unbalanced:}\quad & u \leftarrow \left(\frac{a}{Kv}\right)^{\tau/(\tau+\varepsilon)} \\[6pt]
+\text{supervised:}\quad & u \leftarrow \min\!\left(\frac{a}{Kv},\ e^{\gamma/\varepsilon}\right)
+\end{aligned}
+$$
 
 <p>
   <strong>Partial OT</strong> projects onto inequalities. The KL projection onto
-  <code>{ P·1 ≤ a }</code> scales only the rows that overshoot, and only downward:
-  <code>P ← diag(min(1, a/(P·1))) · P</code>. Then the columns, likewise. Then onto
-  <code>{ ⟨P,1⟩ = s }</code>, which is a single global rescale. These three sets are convex but
-  <em>not</em> affine, and that changes the algorithm: plain alternating projection onto non-affine
-  sets converges to <em>some</em> feasible point, but in general not to the projection. Dykstra's
-  algorithm restores it by carrying a correction factor for each set and re-applying it before each
-  projection. POT's <code>entropic_partial_wasserstein</code> does exactly this, and so does the
-  solver behind these figures.
+  \(\{P\mathbf{1} \le a\}\) scales only the rows that overshoot, and only downward. Then the columns,
+  likewise. Then onto \(\{\langle P,\mathbf{1}\rangle = s\}\), which is a single global rescale.
+  These three sets are convex but <em>not</em> affine, and that changes the algorithm: plain
+  alternating projection onto non-affine sets converges to <em>some</em> feasible point, but in
+  general not to the projection. Dykstra's algorithm restores it by carrying a correction factor for
+  each set and re-applying it before each projection. POT's <code>entropic_partial_wasserstein</code>
+  does exactly this, and so does the solver behind these figures.
 </p>
 
 <p>
   <strong>Unbalanced OT</strong> has no constraint to project onto. It pays
-  <code>τ·KL(P·1 ‖ a)</code> instead, and the proximal step of that penalty in KL geometry is a
-  fractional scaling: <code>P ← diag((a/(P·1))^(τ/(τ+ε))) · P</code>. The exponent lies in
-  <code>(0, 1)</code>, so each step goes part of the way toward the full projection and stops.
-  As <code>τ → ∞</code> the exponent goes to 1 and you recover balanced OT; as
-  <code>τ → 0</code> it goes to 0 and nothing moves.
+  \(\tau\,\mathrm{KL}(P\mathbf{1}\,\|\,a)\) instead, and the proximal step of that penalty in KL
+  geometry is a fractional scaling. The exponent \(\tau/(\tau+\varepsilon)\) lies in \((0,1)\), so
+  each step goes part of the way toward the full projection and stops. As \(\tau \to \infty\) the
+  exponent goes to 1 and you recover balanced OT; as \(\tau \to 0\) it goes to 0 and nothing moves.
 </p>
 
 <p>
-  <strong>Supervised OT</strong> pays <code>γ·‖a − P·1‖₁</code> over <code>P·1 ≤ a</code>. Its
-  proximal step is the full projection, <em>capped</em>: in scaling factors,
-  <code>u ← min(a/(K·v), e^(γ/ε))</code>. A row is rescaled to its target unless doing so would
-  need a factor beyond <code>e^(γ/ε)</code>. With <code>γ</code> pinned at 2 that cap is
-  astronomically large, and it binds only for a row whose permitted partners cannot take its mass.
+  <strong>Supervised OT</strong> pays \(\gamma\,\|a - P\mathbf{1}\|_1\) over
+  \(P\mathbf{1} \le a\). Its proximal step is the full projection, <em>capped</em>: a row is rescaled
+  to its target unless doing so would need a factor beyond \(e^{\gamma/\varepsilon}\). With
+  \(\gamma\) pinned at 2 that cap is astronomically large, and it binds only for a row whose
+  permitted partners cannot take its mass.
 </p>
 
 <p>
-  The dual potentials <code>f = ε·log u</code> of the log-domain implementation are these same
-  scalings seen through a logarithm; the "ceiling at <code>γ</code>" is the cap on <code>u</code>.
+  The dual potentials \(f = \varepsilon \log u\) of the log-domain implementation are these same
+  scalings seen through a logarithm; the "ceiling at \(\gamma\)" is the cap on \(u\).
 </p>
 
 <figure>
   <div id="fig-projections"></div>
   <figcaption>
-    <span class="figure-number">Figure 3: </span>
+    <span class="figure-number">Figure 3.</span>
     The primal picture. For each source point, the mass its row actually carries against the mass it
     asked for (the tick). Balanced OT reaches every tick. Partial OT reaches some and leaves others
     short. Unbalanced OT falls short everywhere, each row by its own factor. Supervised OT reaches
@@ -274,7 +423,7 @@
 <figure>
   <div id="fig-mass"></div>
   <figcaption>
-    <span class="figure-number">Figure 4: </span>
+    <span class="figure-number">Figure 4.</span>
     Transported mass (top) and longest route used (bottom) as each parameter sweeps. Partial OT's
     mass is the identity line by construction, and its longest route climbs however it must to hit
     the quota. Supervised OT is the mirror image: its longest route is the identity line by
@@ -287,15 +436,15 @@
   The bottom-right panel is the one to look at. Supervised OT's longest route <em>is</em> the cutoff:
   a hard bound on how far any unit of mass may travel, set in the units of the cost matrix. Nothing
   in the other two rows resembles it. Partial OT will use a route of any length if that is what
-  meeting the mass quota takes; unbalanced OT's reach drifts upward with <code>τ</code> as a side
-  effect of a trade-off it is making about something else.
+  meeting the mass quota takes; unbalanced OT's reach drifts upward with \(\tau\) as a side effect
+  of a trade-off it is making about something else.
 </p>
 
 <p>
   The staircase in the top-right panel is the same fact from the mass side. Raising the cutoff
   changes nothing until it crosses the cost of some group of routes, at which point that whole group
   becomes admissible at once; with the entropic term the steps are rounded, and they sharpen as
-  <code>ε</code> falls. The curve flattens well before the cutoff reaches 1, because past the point
+  \(\varepsilon\) falls. The curve flattens well before the cutoff reaches 1, because past the point
   where every source has <em>some</em> permitted partner, widening the cutoff admits nothing new.
 </p>
 
@@ -303,21 +452,22 @@
 
 <p>
   It is tempting to read the previous two sections as saying partial and supervised OT are
-  interchangeable — both leave mass behind, both live in <code>U(≤a, ≤b)</code>, and there is a
-  clean identity connecting them when nothing is forbidden. Cang, Nie and Zhao write supervised OT
-  as partial OT with one extra optimisation wrapped around it, a maximisation over the transported
-  mass:
+  interchangeable — both leave mass behind, both live in \(U(\le a, \le b)\), and there is a clean
+  identity connecting them when nothing is forbidden. Cang, Nie and Zhao write supervised OT as
+  partial OT with one extra optimisation wrapped around it, a maximisation over the transported mass:
 </p>
 
-<div class="eq">maximise over  θ ∈ [ 0,  min(aᵀ·1, bᵀ·1) ] :
-
-    minimise   &lt;P, C&gt;    over  P ∈ U(≤a, ≤b)    subject to  &lt;P, 1&gt; = θ</div>
+$$
+\max_{\theta \,\in\, [\,0,\ \min(a^{\top}\mathbf{1},\, b^{\top}\mathbf{1})\,]}\;
+\min_{P \in U(\le a,\, \le b)}
+\Big\{\, \langle P, C\rangle \;:\; \langle P, \mathbf{1}\rangle = \theta \,\Big\}.
+$$
 
 <p>
-  The inner problem is partial OT at a prescribed mass <code>θ</code>; the outer one hands
-  <code>θ</code> to the solver. And if <code>C</code> has no forbidden entries and the two sides
-  carry equal mass, nothing stops <code>θ</code> from climbing to the total, so the whole thing
-  degenerates to balanced OT — the same saturation we met from the <code>γ</code> side.
+  The inner problem is partial OT at a prescribed mass \(\theta\); the outer one hands \(\theta\) to
+  the solver. And if \(C\) has no forbidden entries and the two sides carry equal mass, nothing stops
+  \(\theta\) from climbing to the total, so the whole thing degenerates to balanced OT — the same
+  saturation we met from the \(\gamma\) side.
 </p>
 
 <p>
@@ -328,7 +478,7 @@
 <blockquote class="aside">
   <p>
     <strong>Partial OT controls how much mass moves and says nothing about how far.</strong>
-    Given a quota <code>s</code>, it uses whatever routes it needs, including long ones.
+    Given a quota \(s\), it uses whatever routes it needs, including long ones.
   </p>
   <p>
     <strong>Supervised OT controls how far mass may move and lets the amount follow.</strong>
@@ -347,45 +497,11 @@
 </p>
 
 <p>
-  There is a second, structural asymmetry. With forbidden routes in <code>C</code>, partial OT at a
-  prescribed <code>θ</code> can have an empty feasible set — there may simply be no way to move that
-  much mass along permitted routes. Supervised OT never has that problem, because
-  <code>θ = 0</code> is always feasible: at worst it moves nothing, and says so. Fix the mass first
-  and you can pose a problem with no solution. Bound the distance and let the mass follow, and you
-  cannot.
-</p>
-
-<h2>What supervision actually buys</h2>
-
-<p>
-  Which leaves the question of what is genuinely new in supervised OT, and the answer is the other
-  half of the method: the forbidden routes. Relaxing the marginals is about <em>how much</em> mass
-  moves. Supervision is about <em>which pairs are allowed to exchange it</em>, and no amount of
-  tuning <code>s</code> or <code>τ</code> can express that.
-</p>
-
-<p>
-  The figure below is built so that geometry lies. There are three labelled classes on each side,
-  positioned so that the nearest target cluster is usually the wrong class. Turn supervision on and
-  the wrong-class routes are forbidden.
-</p>
-
-<figure>
-  <div id="fig-blocking"></div>
-  <figcaption>
-    <span class="figure-number">Figure 5: </span>
-    Forbidding cross-class couplings. Balanced OT cannot honour the ban: its marginal constraints are
-    hard, so mass has to go <em>somewhere</em>, and it goes through the routes you forbade. Every
-    method that is allowed to leave mass behind honours it exactly.
-  </figcaption>
-</figure>
-
-<p>
-  Notice what happens with <strong>Balanced</strong> selected and supervision on. The mass through
-  forbidden pairs is not zero. It cannot be: the marginals must be satisfied, the only routes that
-  satisfy them are banned, and an infinite cost loses to an infeasible problem. This is the concrete
-  reason supervision needs a relaxed marginal to be meaningful at all — a hard ban and a hard
-  marginal are usually contradictory, and something has to give.
+  There is a second, structural asymmetry. With forbidden routes in \(C\), partial OT at a
+  prescribed \(\theta\) can have an empty feasible set — there may simply be no way to move that much
+  mass along permitted routes. Supervised OT never has that problem, because \(\theta = 0\) is
+  always feasible: at worst it moves nothing, and says so. Fix the mass first and you can pose a
+  problem with no solution. Bound the distance and let the mass follow, and you cannot.
 </p>
 
 <h2>The same story in three dimensions</h2>
@@ -402,7 +518,7 @@
 <figure>
   <div id="fig-three"></div>
   <figcaption>
-    <span class="figure-number">Figure 6: </span>
+    <span class="figure-number">Figure 5.</span>
     Four transport problems on a 3D helix. Drag to turn it; it resumes rotating when released. The
     plan is re-solved when a control changes and only re-projected as the view turns. Watch the
     stray clump: solid under balanced OT, because something must be sent to it; hollow under the
@@ -427,20 +543,20 @@
     <tr>
       <td><strong>Partial OT</strong></td>
       <td>You know the overlap: a contamination rate, a known outlier fraction, a subsampling ratio.</td>
-      <td>A mass fraction <code>s</code>.</td>
+      <td>A mass fraction \(s\).</td>
       <td>It bounds how much moves, not how far: to hit the quota it will use routes of any length.</td>
     </tr>
     <tr>
       <td><strong>Unbalanced OT</strong></td>
       <td>The relaxation lives inside a larger differentiable pipeline, or you want mass to respond smoothly.</td>
-      <td>A KL weight <code>τ</code>.</td>
-      <td><code>τ</code> has no natural units and couples to <code>ε</code> and the scale of <code>C</code>.</td>
+      <td>A KL weight \(\tau\).</td>
+      <td>\(\tau\) has no natural units and couples to \(\varepsilon\) and the scale of \(C\).</td>
     </tr>
     <tr>
       <td><strong>Supervised OT</strong></td>
       <td>You can say how far mass may travel — an interaction radius, a label rule, a time ordering — and want that bound enforced exactly, with the amount moved following from it.</td>
-      <td>A cutoff on the normalised cost. <code>γ</code> stays at 2.</td>
-      <td>With nothing forbidden it collapses to balanced OT, because <code>γ = 2</code> saturates. The bound on distance <em>is</em> the method.</td>
+      <td>A cutoff on the normalised cost. \(\gamma\) stays at 2.</td>
+      <td>With nothing forbidden it collapses to balanced OT, because \(\gamma = 2\) saturates. The bound on distance <em>is</em> the method.</td>
     </tr>
   </tbody>
 </table>
@@ -499,6 +615,20 @@
 </article>
 </div>
 
+<script defer src="./vendor/katex/katex.min.js"></script>
+<script defer src="./vendor/katex/contrib/auto-render.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof renderMathInElement !== 'function') return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ],
+      throwOnError: false
+    });
+  });
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

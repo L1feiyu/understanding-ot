@@ -209,11 +209,12 @@ plans the wrong way round — it does exactly that on one of the cases in `refer
 ## Layout
 
 ```
-index.html                  the article
+index.html                  the article (math in LaTeX, rendered by KaTeX)
+vendor/katex/               KaTeX 0.16 (MIT), vendored so the page has no CDN dependency
 src/global.css              colour roles for both themes
 src/main.js                 mounts figures lazily, handles the theme toggle
 src/lib/ot/solvers.js       the solvers — the only file most people will want
-src/lib/datasets.js         seeded toy source/target pairs
+src/lib/datasets.js         seeded scenes: bakeries & cafés, heart → star, tissue slices, a 3D helix
 src/lib/plot.js             canvas primitives: transport plot, coupling matrix, line chart
 src/lib/palette.js          colour roles, sequential ramp
 src/lib/ui.js               sliders, segmented controls, readouts, tooltips

@@ -97,6 +97,9 @@ export function drawTransport(ctx, o) {
 
   ctx.clearRect(0, 0, width, height);
 
+  // ---- scene decorations (rivers, outlines, labels) under everything ---
+  if (o.scene) drawScene(ctx, o.scene, scale, p);
+
   const rowMoved = new Float64Array(n);
   const colMoved = new Float64Array(m);
   let maxP = 0;
@@ -142,20 +145,18 @@ export function drawTransport(ctx, o) {
   const maxMass = Math.max(...a, ...b);
   const radius = (mass) => 2.6 + 4.4 * Math.sqrt(mass / maxMass);
 
-  const drawSide = (pts, masses, moved, colour, highlight) => {
+  const drawSide = (pts, masses, moved, colour, highlight, glyph) => {
     for (let i = 0; i < pts.length; i++) {
       const cx = scale.x(pts[i][0]), cy = scale.y(pts[i][1]);
       const r = radius(masses[i]);
       const frac = P ? Math.max(0, Math.min(1, moved[i] / (masses[i] || 1e-12))) : 1;
 
       // 2px surface ring keeps overlapping markers legible without a border.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 1.4, 0, Math.PI * 2);
+      markerPath(ctx, glyph, cx, cy, r + 1.4);
       ctx.fillStyle = p.surface;
       ctx.fill();
 
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      markerPath(ctx, glyph, cx, cy, r);
       ctx.fillStyle = withAlpha(colour, 0.14 + 0.76 * frac);
       ctx.fill();
       ctx.lineWidth = 1.2;
@@ -172,8 +173,9 @@ export function drawTransport(ctx, o) {
     }
   };
 
-  drawSide(X, a, rowMoved, p.source, o.highlight);
-  drawSide(Y, b, colMoved, p.target, o.highlightTarget);
+  const glyphs = o.marker || {};
+  drawSide(X, a, rowMoved, p.source, o.highlight, glyphs.source || 'circle');
+  drawSide(Y, b, colMoved, p.target, o.highlightTarget, glyphs.target || 'circle');
 
   // Direct labels, so group identity never rests on position alone.
   if (o.annotations) {
@@ -191,6 +193,54 @@ export function drawTransport(ctx, o) {
   }
 
   return { scale, rowMoved, colMoved };
+}
+
+/** Trace a marker outline of "radius" r; every glyph covers about the same area. */
+export function markerPath(ctx, glyph, cx, cy, r) {
+  ctx.beginPath();
+  switch (glyph) {
+    case 'square': {
+      const h = r * 0.9;
+      ctx.rect(cx - h, cy - h, 2 * h, 2 * h);
+      break;
+    }
+    case 'diamond': {
+      const h = r * 1.25;
+      ctx.moveTo(cx, cy - h); ctx.lineTo(cx + h, cy); ctx.lineTo(cx, cy + h); ctx.lineTo(cx - h, cy); ctx.closePath();
+      break;
+    }
+    case 'triangle': {
+      const h = r * 1.3;
+      ctx.moveTo(cx, cy - h); ctx.lineTo(cx + h * 0.95, cy + h * 0.6); ctx.lineTo(cx - h * 0.95, cy + h * 0.6); ctx.closePath();
+      break;
+    }
+    default:
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+}
+
+const SCENE_COLOURS = (p) => ({ source: p.source, target: p.target, ink: p.inkSecondary, water: p.source });
+
+/** Decorations drawn under the plan: outlines, rivers, place labels. */
+export function drawScene(ctx, scene, scale, p) {
+  const colours = SCENE_COLOURS(p);
+  for (const item of scene) {
+    if (item.type === 'polyline') {
+      ctx.beginPath();
+      item.points.forEach(([x, y], i) => (i ? ctx.lineTo(scale.x(x), scale.y(y)) : ctx.moveTo(scale.x(x), scale.y(y))));
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = item.width || 1;
+      ctx.strokeStyle = withAlpha(colours[item.stroke] || p.inkMuted, item.alpha ?? 0.3);
+      ctx.stroke();
+    } else if (item.type === 'label') {
+      ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = withAlpha(p.inkMuted, 0.9);
+      ctx.fillText(item.text, scale.x(item.at[0]), scale.y(item.at[1]));
+    }
+  }
 }
 
 /** Nearest point to a pixel position, across both clouds. */
