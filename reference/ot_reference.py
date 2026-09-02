@@ -82,10 +82,52 @@ def sinkhorn(C, a, b, eps, n_iter=500):
 # 2. entropic partial OT  (Benamou/Chizat; matches POT.partial.entropic_partial_wasserstein)
 # --------------------------------------------------------------------------- #
 
-def entropic_partial_multiplicative(C, a, b, eps, mass, n_iter=1000):
-    """POT's Dykstra-style iteration, kept as an independent cross-check.
+def entropic_partial_pot(C, a, b, eps, mass, n_iter=1000):
+    """Faithful port of POT's `ot.partial.entropic_partial_wasserstein`.
 
         min <P,C> + eps*H(P)   s.t.  P1 <= a,  P^T 1 <= b,  <P,1> = mass
+
+    This is Dykstra's algorithm over three convex sets, and the correction
+    factors q1/q2/q3 are the whole point of it: without them the iteration is
+    plain alternating projection, which converges to a feasible but generally
+    suboptimal plan. (An earlier version of this file omitted them and was, for
+    a while, wrongly used as evidence that POT itself was suboptimal.)
+    """
+    dx = np.ones(len(a))
+    dy = np.ones(len(b))
+
+    K = np.exp(-C / eps)
+    K = K * mass / K.sum()
+
+    q1 = np.ones(K.shape)
+    q2 = np.ones(K.shape)
+    q3 = np.ones(K.shape)
+
+    for _ in range(n_iter):
+        Kprev = K
+        K = K * q1
+        K1 = np.diag(np.minimum(a / (K.sum(axis=1) + TINY), dx)).dot(K)
+        q1 = q1 * Kprev / (K1 + TINY)
+
+        K1prev = K1
+        K1 = K1 * q2
+        K2 = K1.dot(np.diag(np.minimum(b / (K1.sum(axis=0) + TINY), dy)))
+        q2 = q2 * K1prev / (K2 + TINY)
+
+        K2prev = K2
+        K2 = K2 * q3
+        K = K2 * (mass / (K2.sum() + TINY))
+        q3 = q3 * K2prev / (K + TINY)
+
+    return K
+
+
+def entropic_partial_alternating(C, a, b, eps, mass, n_iter=1000):
+    """The same iteration WITHOUT Dykstra's corrections.
+
+    Kept only as the contrast that makes the corrections' role visible: it stays
+    feasible (P1 <= a, P^T1 <= b, total mass = `mass`) but lands on a plan of
+    strictly higher cost. It is not what POT does.
     """
     K = np.exp(-C / eps)
     K = K * mass / K.sum()
@@ -97,7 +139,7 @@ def entropic_partial_multiplicative(C, a, b, eps, mass, n_iter=1000):
 
 
 def partial_ot_log(C, a, b, eps, mass, n_iter=1000):
-    """Same problem in the shared log-domain form.
+    """The uncorrected alternating iteration, written in the shared log form.
 
     Dykstra clips the *update* at zero (potentials may only ever decrease), which
     is what enforces P1 <= a rather than P1 = a; a global scalar shift then pins

@@ -394,13 +394,40 @@
 </p>
 
 <p>
-  One finding came out of that exercise and is worth flagging, since it affects anyone comparing
-  these methods numerically. POT's <code>entropic_partial_wasserstein</code> uses alternating
-  projection without Dykstra's correction terms, and it can converge to a plan that is
-  <em>feasible but not optimal</em>: on the test problem in <code>reference/</code> it returns a plan
-  costing 0.80449 where the true entropic optimum at the same mass costs 0.80283. The default partial
-  solver here uses proper Dykstra iterations and reaches the optimum; passing
-  <code>algorithm: 'dykstra'</code> reproduces POT's behaviour if you need to match it.
+  Two things surfaced while building this that are worth passing on, because both are easy to get
+  wrong in exactly the way we got them wrong.
+</p>
+
+<p>
+  The first is that entropic partial OT is a KL projection onto the intersection of three convex
+  sets, and Dykstra's algorithm reaches it by carrying a correction factor for each one. Drop those
+  corrections and the iteration still converges somewhere <em>feasible</em> — the marginals hold,
+  the mass is right — but to a plan with a strictly larger entropic objective. POT's
+  <code>entropic_partial_wasserstein</code> carries them, and so does the solver here; the two agree
+  to about 1e-14. The uncorrected variant is kept only as the contrast that makes the corrections
+  visible.
+</p>
+
+<blockquote class="aside">
+  <p>
+    An earlier version of this article claimed the reverse — that POT's routine skipped the
+    corrections and returned suboptimal plans. It was wrong, and the way it went wrong is the
+    interesting part. The NumPy "reference" it was measured against was itself missing the
+    corrections, so the comparison ran a correct solver against a broken stand-in and then reported
+    the difference as a property of the library. Running against the real POT is what exposed it:
+    one mass level agreed to 1e-15 while another was off by 15% — the signature of two different
+    algorithms, not of a convergence problem. Validating against your own re-implementation of
+    something proves nothing about the something.
+  </p>
+</blockquote>
+
+<p>
+  The second is a measurement trap. When you compare two plans, rank them by the objective actually
+  being minimised — <code>&lt;P, C&gt; + ε·Σ(P log P − P)</code> — and not by transport cost alone. A
+  regularised solver is entitled to accept a slightly costlier plan in exchange for enough entropy,
+  so <code>&lt;P, C&gt;</code> on its own can order two plans the wrong way round. It does exactly
+  that on one of the cases in <code>reference/validate.py</code>, and taking that ordering at face
+  value would have sent us chasing a bug that was not there.
 </p>
 
 <h2>References</h2>

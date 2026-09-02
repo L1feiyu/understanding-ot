@@ -10,11 +10,13 @@
  *     balanced      f_i <- f_i + corr_i
  *     unbalanced    f_i <- (tau/(tau+eps)) * (f_i + corr_i)
  *     supervised    f_i <- min(f_i + corr_i, gamma)
- *     partial       same as supervised, with gamma bisected to hit the mass s
+ *     partial       min(f_i + corr_i, gamma) with gamma implied by the mass s
  *
  * and symmetrically for g. Everything else is shared. Partial OT collapsing into
  * the supervised update is not a coding shortcut — it is the actual relationship
- * between the two problems; see solvePartial below.
+ * between the two problems, and `gammaEquivalent` on the result reports the
+ * gamma that reproduces the plan exactly. The solver itself runs Dykstra, which
+ * reaches the same point without having to search for that gamma.
  *
  * Validated against NumPy references in reference/ot_reference.py, which in turn
  * reproduce POT's `entropic_partial_wasserstein` and `sinkhorn_knopp_unbalanced`
@@ -53,7 +55,7 @@ export const METHOD_META = {
     label: 'Partial OT',
     short: 'Partial',
     param: { key: 's', label: 'mass fraction s', min: 0.05, max: 1, step: 0.01, def: 0.6 },
-    projection: 'min(f + corr, γ(s))',
+    projection: 'min(f + corr, γ(s))',   // equivalent form; solved by Dykstra
     blurb: 'Move a prescribed fraction of the mass and leave the rest where it is.'
   },
   unbalanced: {
@@ -175,12 +177,19 @@ export function solve(o) {
     o = { ...o, C: applyCutoff(o.C, o.cutoff), cutoff: null };
   }
   if (o.method === 'supervised' && o.gamma == null) o = { ...o, gamma: SOT_GAMMA };
-  if (o.method === 'partial' && o.algorithm !== 'dykstra') return solvePartial(o);
+  if (o.method === 'partial' && o.algorithm !== 'alternating') return solvePartial(o);
   return sinkhornLoop(o);
 }
 
 /**
- * Exact entropic partial OT, obtained through its equivalence with sOT.
+ * Exact entropic partial OT, by Dykstra's algorithm over the three constraint
+ * sets { P1 <= a }, { P^T1 <= b } and { <P,1> = s }.
+ *
+ * This matches POT's `ot.partial.entropic_partial_wasserstein`, which carries
+ * the same correction factors, to ~1e-14. Passing `algorithm: 'alternating'`
+ * runs the same projections WITHOUT Dykstra's corrections: still feasible, but
+ * it settles on a plan with a strictly larger entropic objective. That variant
+ * exists only as the contrast — it is not what POT does.
  *
  * The partial problem
  *     min <P,C> + eps*H(P)   s.t.  P1 <= a,  P^T1 <= b,  <P,1> = s
@@ -189,13 +198,14 @@ export function solve(o) {
  * f -> f + lambda/2, g -> g + lambda/2 turns that into { f <= gamma, g <= gamma }
  * with plan exp((f+g-C)/eps) — precisely supervised OT at gamma = lambda/2.
  *
- * So partial OT and sOT are the same solver: one is told the mass and finds the
- * penalty, the other is told the penalty and finds the mass. Transported mass is
- * monotone in gamma, so a bisection recovers the requested level.
+ * So partial OT and sOT are the same problem seen from two sides: one is told
+ * the mass and implies the penalty, the other is told the penalty and implies
+ * the mass. Dykstra's potentials are only defined up to the gauge f -> f + t,
+ * g -> g - t, so the equivalent gamma is the symmetric choice
  *
- * (POT's `entropic_partial_wasserstein` uses alternating projection without
- * Dykstra corrections and can land on a strictly suboptimal plan; pass
- * `algorithm: 'dykstra'` to reproduce it.)
+ *     gammaEquivalent = ( max(f) + max(g) ) / 2
+ *
+ * which reproduces the plan through the supervised solver to ~1e-15.
  */
 function solvePartial(o) {
   const a = Float64Array.from(o.a);
@@ -274,7 +284,17 @@ function solvePartial(o) {
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) P[i * m + j] = Math.exp((F[i] + G[j] - C[i * m + j]) / eps);
   }
-  return { P, f: F, g: G, n, m, iterations, converged, targetMass: target };
+
+  // The supervised cap that reproduces this plan (see the note above).
+  let maxF = -Infinity, maxG = -Infinity;
+  for (const v of F) if (v > maxF) maxF = v;
+  for (const v of G) if (v > maxG) maxG = v;
+
+  return {
+    P, f: F, g: G, n, m, iterations, converged,
+    targetMass: target,
+    gammaEquivalent: (maxF + maxG) / 2
+  };
 }
 
 function sinkhornLoop(o) {
@@ -307,7 +327,7 @@ function sinkhornLoop(o) {
     for (let j = 0; j < m; j++) if (g[j] > gamma) g[j] = gamma;
   }
 
-  // The POT-compatible Dykstra variant starts from the mass-scaled Gibbs kernel.
+  // The uncorrected alternating variant starts from the mass-scaled Gibbs kernel.
   if (method === 'partial') {
     let tot = 0;
     for (let k = 0; k < n * m; k++) tot += Math.exp(-C[k] / eps);

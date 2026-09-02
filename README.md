@@ -142,21 +142,45 @@ source. Differences that are deliberate: the sOT reference adds `1e-20` inside t
 JS adds a tiny constant inside a max-shifted log-sum-exp, and the JS exits early on convergence
 instead of running a fixed `niter`.
 
-`pot_reference.py` was written but **never executed** by its author — the authoring environment had
-no PyPI access, so POT could not be installed. Its adapter logic (signature handling across POT
-versions, variant probing, fixture writing) was exercised against a stand-in module, but the
-comparison against real POT has not been run. Run `npm run verify:pot` before relying on it.
+`pot_reference.py` could not be executed in the environment it was written in (no PyPI access), so
+it was first run downstream — and it immediately caught a real error in `ot_reference.py`; see the
+correction note above. It has since been checked against **POT 0.9.5**, where the references agree
+on all three methods. Two things it settled that were otherwise guesswork:
+
+- POT's unbalanced solver takes a `reg_type` argument, and this repository's convention matches
+  `reg_type='entropy'`, not the `'kl'` default. The script probes both and reports which one fits.
+- POT's partial solver carries Dykstra corrections, which is what the reference now reproduces.
+
+Re-run it after any change to the reference implementations.
 
 `scripts/screenshot.py` renders the article in headless Chromium, fails on any console error or
 blank canvas, and captures both themes. It needs Playwright (`pip install playwright`).
 
-### A note on POT's partial solver
+### Why Dykstra's corrections matter
 
-POT's `entropic_partial_wasserstein` uses alternating projection **without** Dykstra's correction
-terms, and can return a plan that is feasible but not optimal. On the test problem in `reference/`
-it returns a plan costing `0.80449` where the true entropic optimum at the same mass costs
-`0.80283`. The default partial solver here runs proper Dykstra iterations and reaches the optimum;
-pass `algorithm: 'dykstra'` if you need to reproduce POT's behaviour for comparison.
+Entropic partial OT is a KL projection onto the intersection of three convex sets — `P·1 ≤ a`,
+`Pᵀ·1 ≤ b`, and `⟨P,1⟩ = s`. Dykstra's algorithm reaches that projection by carrying a correction
+factor for each set. Drop the corrections and you get plain alternating projection, which still
+lands somewhere *feasible* — the marginals hold and the mass is right — but on a plan with a
+strictly larger entropic objective.
+
+POT's `ot.partial.entropic_partial_wasserstein` carries the corrections (`q1`, `q2`, `q3`), and so
+does the default solver here; the two agree to ~1e-14. `algorithm: 'alternating'` runs the
+uncorrected version, and exists only as the contrast that makes the corrections' role visible.
+
+> **Correction.** An earlier version of this README claimed the opposite — that POT's routine
+> omitted the corrections and returned suboptimal plans. That was wrong, and the error is
+> instructive. The NumPy "reference" it was measured against was itself missing the corrections, so
+> the comparison was between a correct solver and a broken stand-in, with the conclusion attributed
+> to POT. Running `npm run verify:pot` against the real library is what surfaced it: one mass level
+> matched to 1e-15 while another was off by 15%, which is the signature of two different algorithms
+> rather than a convergence problem. Validating against your own re-implementation proves nothing
+> about the library it imitates.
+
+A second trap worth naming: when comparing two plans, rank them by the objective actually being
+minimised, `⟨P,C⟩ + ε·Σ(P log P − P)`, not by `⟨P,C⟩` alone. A regularised solver may accept a
+slightly costlier plan in exchange for enough entropy, so transport cost on its own can order two
+plans the wrong way round — it does exactly that on one of the cases in `reference/validate.py`.
 
 ## Layout
 

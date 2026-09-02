@@ -38,12 +38,19 @@ except ImportError:
 
 from ot_reference import (
     squared_euclidean, sinkhorn,
-    entropic_partial_multiplicative, partial_ot_log,
+    entropic_partial_pot, entropic_partial_alternating,
     unbalanced_multiplicative, unbalanced_ot_log,
     supervised_ot,
 )
 
 TOL = 1e-6
+
+
+def entropic_objective(P, C, eps):
+    """<P,C> + eps*sum(P log P - P): the objective these solvers minimise.
+    Ranking plans by <P,C> alone can pick the wrong one."""
+    Q = np.where(P > 0, P, 1.0)
+    return float(np.sum(P * C) + eps * np.sum(P * np.log(Q) - P))
 
 
 def rel(A, B):
@@ -110,14 +117,18 @@ def main():
                       params=dict(eps=eps), P=np.asarray(P_pot).tolist()))
 
     # ---- partial -------------------------------------------------------
-    # NOTE: this is POT's alternating-projection routine, which can return a
-    # feasible but suboptimal plan. The JS default uses proper Dykstra and is
-    # compared against this only via `algorithm: 'dykstra'`.
-    for s in (0.4, 0.75):
+    # POT runs Dykstra with correction factors q1/q2/q3; the reference is a
+    # faithful port of that, and the JS default matches both.
+    for s in (0.4, 0.6, 0.75):
         P_pot = call(ot.partial.entropic_partial_wasserstein, a, b, C, eps, m=s,
                      numItermax=20000)
-        P_ref = entropic_partial_multiplicative(C, a, b, eps, s, 20000)
+        P_ref = entropic_partial_pot(C, a, b, eps, s, 20000)
         check(f"ot.partial.entropic_partial_wasserstein (m={s})", P_ref, P_pot)
+        # And confirm the corrections matter: without them the plan costs more.
+        P_alt = entropic_partial_alternating(C, a, b, eps, s, 20000)
+        od, oa = entropic_objective(P_ref, C, eps), entropic_objective(P_alt, C, eps)
+        verdict = "corrections help" if od < oa - 1e-12 else ("tie" if od <= oa + 1e-12 else "UNEXPECTED")
+        print(f"       objective with corrections {od:.10f} vs without {oa:.10f}  ({verdict})")
         cases.append(dict(name=f"partial s={s}", method="partial",
                           params=dict(eps=eps, s=s), P=np.asarray(P_pot).tolist()))
 

@@ -37,11 +37,7 @@ function maxAbsDiff(P, ref) {
 
 for (const c of fx.cases) {
   test(`matches NumPy reference — ${c.name}`, () => {
-    // Fixtures come from POT-compatible references, so compare against the
-    // POT-compatible partial variant; the default partial solver is exact and
-    // is checked separately below.
-    const algorithm = c.method === 'partial' ? 'dykstra' : undefined;
-    const { P } = solve({ C, a: fx.a, b: fx.b, method: c.method, algorithm, ...c.params, ...OPTS });
+    const { P } = solve({ C, a: fx.a, b: fx.b, method: c.method, ...c.params, ...OPTS });
     const rel = maxAbsDiff(P, c.P);
     assert.ok(rel < 1e-6, `relative error ${rel.toExponential(2)} exceeds 1e-6`);
   });
@@ -135,15 +131,53 @@ test('uniform marginals sum to one', () => {
   assert.ok(Math.abs(u.reduce((x, y) => x + y, 0) - 1) < 1e-12);
 });
 
-test('the exact partial solver is never worse than the POT-compatible one', () => {
+/**
+ * The objective these solvers actually minimise. Ranking plans by <P,C> alone is
+ * a trap: a regularised solver may accept a costlier plan for enough entropy, so
+ * <P,C> can order two plans the wrong way round.
+ */
+function entropicObjective(P, cost, eps) {
+  let v = 0;
+  for (let k = 0; k < P.length; k++) {
+    v += P[k] * cost[k];
+    if (P[k] > 0) v += eps * (P[k] * Math.log(P[k]) - P[k]);
+    else v -= eps * P[k];
+  }
+  return v;
+}
+
+test("Dykstra's corrections are what make partial OT optimal", () => {
+  // Dropping them leaves the iteration feasible but lands on a worse plan.
+  // This is the variant POT does NOT use.
+  const eps = 0.01;
   for (const s of [0.3, 0.5, 0.61, 0.8]) {
-    const exact = solve({ C, a: fx.a, b: fx.b, method: 'partial', eps: 0.01, s, nIter: 40000, tol: 0 });
-    const dyk = solve({ C, a: fx.a, b: fx.b, method: 'partial', algorithm: 'dykstra', eps: 0.01, s, nIter: 40000, tol: 0 });
-    // Same mass, so transport cost is directly comparable.
-    assert.ok(Math.abs(totalMass(exact.P) - totalMass(dyk.P)) < 1e-6);
-    let ce = 0, cd = 0;
-    for (let k = 0; k < n * m; k++) { ce += exact.P[k] * C[k]; cd += dyk.P[k] * C[k]; }
-    assert.ok(ce <= cd + 1e-9, `s=${s}: exact cost ${ce} > dykstra cost ${cd}`);
+    const corrected = solve({ C, a: fx.a, b: fx.b, method: 'partial', eps, s, nIter: 40000, tol: 0 });
+    const plain = solve({ C, a: fx.a, b: fx.b, method: 'partial', algorithm: 'alternating', eps, s, nIter: 40000, tol: 0 });
+    assert.ok(Math.abs(totalMass(corrected.P) - totalMass(plain.P)) < 1e-6, 'masses should match');
+    const oc = entropicObjective(corrected.P, C, eps);
+    const op = entropicObjective(plain.P, C, eps);
+    assert.ok(oc <= op + 1e-9, `s=${s}: corrections made it worse (${oc} > ${op})`);
+  }
+});
+
+test('partial OT reports the supervised gamma that reproduces its plan', () => {
+  // Dykstra fixes the potentials only up to f -> f+t, g -> g-t, so the
+  // equivalent cap is the symmetric (max f + max g)/2.
+  const eps = 0.05;
+  for (const s of [0.3, 0.4, 0.6, 0.75]) {
+    const part = solve({ C, a: fx.a, b: fx.b, method: 'partial', eps, s, nIter: 60000, tol: 0 });
+    const sup = solve({
+      C, a: fx.a, b: fx.b, method: 'supervised', eps,
+      gamma: part.gammaEquivalent, nIter: 60000, tol: 0
+    });
+    assert.ok(Math.abs(totalMass(sup.P) - s) < 1e-6,
+      `s=${s}: supervised at gamma=${part.gammaEquivalent} moved ${totalMass(sup.P)}`);
+    let d = 0, mx = 0;
+    for (let k = 0; k < n * m; k++) {
+      d = Math.max(d, Math.abs(part.P[k] - sup.P[k]));
+      mx = Math.max(mx, part.P[k]);
+    }
+    assert.ok(d / mx < 1e-9, `s=${s}: plans differ by ${d / mx}`);
   }
 });
 

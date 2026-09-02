@@ -107,7 +107,7 @@ export function projectionsFigure(root) {
 
     const ceiling =
       state.method === 'supervised' ? SOT_GAMMA :
-      state.method === 'partial' ? res.gamma :
+      state.method === 'partial' ? res.gammaEquivalent :
       null;
 
     // Stranded points sit exactly at gamma = 2 while everything else lives near
